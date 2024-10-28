@@ -77,7 +77,7 @@ It's easier to use as conda is nicely integrated and it is made easy to switch b
 2. Install Python extension (squared pieces in the left panel).
 3. Open the features_from_dlc.py script. In the bottom right corner, you should see a "conda" entry : click on it and select the ffd conda environment. To run the script, click on the Play item on the top right.
 
-#### 2. Requirements
+#### Requirements
 You need to have tracked your video clips with DeepLabCut and saved the output files (either .h5 or .csv files). One file corresponds to one and only one trial, so you might need to split your original videos into several short clips around the stimulation onsets and offsets beforehand. This can be done with the script provided in the scripts folder. All files analyzed together must :
 - be individual trials with the same duration, the same pixel size, and the stimulation must occur at the same timings,
 - all be in the same directory,
