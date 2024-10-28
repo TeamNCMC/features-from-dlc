@@ -1,0 +1,1614 @@
+"""
+Script to display features computed from body parts tracked with DeepLabCut (DLC).
+
+The files generated with DLC, either csv or h5, are supported. They should all be in the
+same directory. Their file names is important : it is used to recognize the conditions
+and the animals ID. It must begin with the animal ID and contain the condition. Along
+with those files, a settings.toml file can be copied from the resources folder. It
+specifies the physical parameters of the experiment : video duration, stimulation
+timings and pixel size. The latter can be specified per-animal. If this file does not
+exist or there are missing information in it, the default values from the configuration
+file are used.
+
+The "Parameters" section below is user-defined and determines :
+    - modality : refers to the companion configs/xxx.py file, that specifies what
+    are the features to be computed from the DLC file.
+    - animals : only files beginning by these will be processed.
+    - conditions : the file names must contain those. A file can only contain one
+    condition.
+    - what is plotted (see there for options).
+
+This script loads those files, computes features as defined in the configs/xxx.py file,
+averages them across groups, computes metrics that quantify the change of the feature
+during the stimulation and plot all that, along with a raster plot of all trials.
+Features and metrics are defined in the config file.
+It saves a summary CSV file with each trials' time series and metadata (animal,
+condition...), figures (svg) and log files stating files used for analysis and files
+dropped because there were too much tracking errors (low likelihood).
+
+This script should have a folder named "configs" next to it. The latter contains the
+configuration files for each modality (openfield.py, jaw.py, ...) and the file that
+specify plot styles (config_plot.toml).
+
+Requirements
+------------
+- CSV or H5 files to analyze should be placed in one directory.
+- CSV or H5 files names should begin by the animals ID (eg. GN20_blablabla.csv).
+- CSV or H5 files names should contain a bit that identify the condition
+(eg. GN20_blabla_20mW_blabla.csv).
+- A configs/config_plot.toml file must exist.
+- A configs/xxx.py file must exist, xxx is defined as `MODALITY` at the top of this
+script.
+
+Information
+-----------
+- Physical parameters (pixel size, clip duration and stimulation timings are specified
+in a settings.toml file next to the files to be analyzed. Otherwise, default values from
+the configuration file will be used.
+- Modality-specific parameters are specified in configs/xxx.py files.
+- Plot style is defined in the separate configs/config_plot.toml file. See there for
+options.
+- The script is exectuted at the end, see there for input and output directories.
+- If an output directory is defined in the the call (`outdir`), existing files will be
+overridden.
+- You can write your own configuration file. Just copy one that is working and modify
+the computations to your need, respecting the requirements to be compatible with this
+script.
+
+If you're lost, check out the README file, and/or drop me a line :)
+
+author : Guillaume Le Goc (g.legoc@posteo.org)
+version : 2024.09.26
+
+"""
+
+# --- Imports
+import importlib
+import os
+import tomllib
+from functools import partial
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import seaborn as sns
+from matplotlib import rcParams
+from rich import print
+from scipy import stats
+from tqdm import tqdm
+
+pd.options.mode.copy_on_write = True  # prepare for pandas 3.0
+
+# --------------------------------- BEGIN USER DEFINED ---------------------------------
+# --- Parameters ---
+
+# type of analysis : "openfield", ... Case sensitive. The file must exists in the
+# configs directory.
+MODALITY = "openfield"
+
+# - Animals
+# Only files beginning by those will be processed. If only one, write as ("xxx",)
+ANIMALS = ("animal0", "animal1")
+
+# - Groups
+# This must be a dictionnary {key: values}.
+# "key" is the name of the condition that will appear in the graphs -- they must be a
+# unique string ("a"). "values" must be a list (["a", "b"] or ["a"]). It is used to
+# filter file names, eg. files with these elements in their name will be associated to
+# this condition. First, we check if the filename begins with those filters, if it does,
+# it's assigned to the corresponding condition, whether there's something else eleswhere
+# in the file name. See get_condition() function for examples.
+CONDITIONS = {
+    "condition1": ["mouse0"],
+    "condition2": ["identifier"],
+    "condition3": ["something_else"],
+}
+
+# - Options
+# Here, we choose what to plot. When "condition" is mentionned, it means the string must
+# be exactly one of the conditions defined in CONDITIONS above.
+PLOT_POOLED = False  # conditions whose trials are pooled to plot mean, list or None
+PLOT_TRIALS = False  # whether to plot individual trials, bool
+PLOT_CONDITION = True  # whether to plot mean and sem per condition, bool
+PLOT_ANIMAL = False  # whether to plot mean and sem per animal, bool
+PLOT_ANIMAL_MONOCHROME = True  # whether to plot mean per animal in the same color, bool
+PLOT_CONDITION_OFF = None  # conditions NOT to be plotted, list or None
+
+# ---------------------------------- END USER DEFINED ----------------------------------
+HEADER = [1, 2]  # to read CSV correctly
+
+
+# --- Preparation ---
+# Configuration files
+def err_msg(s):
+    m = f"Could not find '{s}.py in the 'configs' directory."
+    return m
+
+
+try:
+    Config = importlib.import_module(f"configs.{MODALITY}", package=__name__).Config
+except ImportError:
+    raise ImportError(err_msg(MODALITY))
+
+STYLE_FILE = os.path.join(
+    os.path.abspath(os.path.dirname(__file__)), "configs", "config_plot.toml"
+)
+
+
+# --- Functions
+
+
+def setup_plot_style(style_file: str = STYLE_FILE):
+    """
+    Setup plots styles defined by the TOML configuration file.
+
+    The configuration file is read and matplotlib's `rcParam` is set accordingly.
+    The returned dictionary has keys "stim", "pooled", "sem", "animal" and "trial",
+    the latters containing the arguments to pass as **kwargs to corresponding plotting
+    functions.
+    It also has keys "figsize", "arrows", "nxticks" and "nyticks".
+
+    Parameters
+    ----------
+    style_file : str
+        Full path to the TOML configuration file.
+
+    Returns
+    -------
+    kwargs_plots : dict
+        Arguments to pass to various plotting functions.
+
+    """
+    with open(style_file, "rb") as fid:
+        config = tomllib.load(fid)  # read config file
+
+    # Setup matplotlib
+    new_rc_params = {
+        "svg.fonttype": "none",  # store text as text
+        "font.family": config["axes"]["fontfamily"],
+        "font.size": config["axes"]["fontsize"],
+        "axes.linewidth": config["axes"]["linewidth"],
+        "xtick.major.width": config["axes"]["linewidth"],
+        "ytick.major.width": config["axes"]["linewidth"],
+        "axes.spines.right": False,
+        "axes.spines.top": False,
+        "axes.grid": config["axes"]["grid"],
+    }
+    rcParams.update(new_rc_params)
+    plt.ion()  # interactive figures
+
+    # Parse options
+    if PLOT_ANIMAL_MONOCHROME:
+        config_animal = config["animal_monochrome"]
+        config_animal["color"] = len(ANIMALS) * [config_animal["color"]]
+    else:
+        config_animal = config["animal_color"]
+
+    # Return plotting functions arguments
+    return {
+        "stim": config["stim"],
+        "pooled": config["pooled"],
+        "sem": config["sem"],
+        "animal": config_animal,
+        "condition": config["condition"],
+        "trial": config["trial"],
+        "bars": config["bars"],
+        "delays": config["delays"],
+        "figsize": config["axes"]["figsize"],
+        "arrow": config["axes"]["arrow_tip"],
+        "arrow_size": config["axes"]["arrow_size"],
+        "nxticks": config["axes"]["nxticks"],
+        "nyticks": config["axes"]["nyticks"],
+    }
+
+
+def get_condition(filename: str, conditions_map: dict) -> str | None:
+    """
+    Get condition name based on file name.
+
+    `conditions` maps a condition name (eg. "control", "10mW", "20mW") to a filter
+    for the file name. If any of the strings in the filter is contained in the file
+    name, then the corresponding condition is returned as string.
+    The beginning of the file name has priority : if a file name begins with a filter,
+    the corresponding condition is returned, whether this file name contains other
+    filters (see example below).
+
+    Example :
+        conditions = {"control": ["GN70"], "low pow.": ["10mW"], "high pow.": ["20mW"]}
+        filename -> returned condition with this function :
+            - GN70_10mW_blabla.h5 -> "control"
+            - GN70_20mW_blabla.h5 -> "control"
+            - GN71_10mW_blabla.h5 -> "low pow."
+            - GN81_20mW_blabla.h5 -> "high pow."
+
+    Parameters
+    ----------
+    filename : str
+        File name.
+    conditions_map : dict
+        In the form {name: [filters]}.
+
+    Returns
+    -------
+    name : str or None
+        Name of the condition, or None if it is not found in the file name.
+
+    """
+    condition = None
+
+    for key, values in conditions_map.items():  # loop through defined groups
+        # convert to tuple
+        if isinstance(values, str):
+            values = (values,)
+        elif isinstance(values, list):
+            values = tuple(values)
+
+        # first, check if the file starts with the value, this has priority
+        if filename.startswith(values):
+            return key
+
+        # then check if the file contains any of the other strings
+        if np.any([v in filename for v in values]):
+            if not condition:
+                # condition is still None : it was not attributed to a group yet
+                condition = key
+            else:
+                # condition was already attributed, so most likely the same filter was
+                # used in several groups, which is not allowed.
+                raise ValueError(
+                    (
+                        "'CONDITIONS' is not valid. Most likely, the same filter was used "
+                        "in several groups."
+                    )
+                )
+
+    return condition
+
+
+def convert_frames_to_time(frames, duration):
+    """
+    Convert frames to time based on the clip duration.
+
+    Parameters
+    ----------
+    frames : array-like
+        Vector of frames.
+    duration : float
+        Duration of the clip.
+
+    Returns
+    -------
+    time : array-like
+        Vector of time, in units of `duration`.
+
+    """
+    return ((frames - frames.min()) * duration) / frames.max()
+
+
+def clean_df(
+    df: pd.DataFrame,
+    likelihood_thresh: float,
+    likelihood_percent: float,
+    likelihood_consecutive: int,
+    bodyparts: list = [],
+    custom_filter_fun=None,
+    **kwargs,
+) -> pd.DataFrame:
+    """
+    Interpolate values where likelihood is low.
+
+    `df` must be a MultiIndex with two levels, on the second level there must be
+    "x", "y" and "likelihood" columns, eg. the DataFrame must come from DeepLabCut.
+    First, the preprocessing function from the configuration file is exectued on the
+    DataFrame, marking missing data based on custom criteria (see
+    `configs.preprocess_df`). Then, it filters out low-likelihood data :
+    Time steps where the likelihood is below `likelihood_thresh` will be replaced by NaN
+    then it is interpolated. The time serie will be considered unusable and dropped if
+    any of those conditions are met :
+        - it has more than `likelihood_percent` (in fraction) time steps with low
+        likelihood OR
+        - it has more than `likelihood_consecutive` consecutive time steps with low
+        likelihood
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+    likelihood_thresh : float
+        Consider values below this as missing and interpolate it.
+    likelihood_percent : float
+        If more than this fraction of the trace is missing, drop the trial.
+    likelihood_consecutive : int
+        If more than this number of consecutive frames of the trace is missing, drop the
+        trial.
+    bodyparts : list, optional
+        Bodyparts to use, everything else is removed. Default is empty list.
+    custom_filter_fun : function, optional
+        Apply a custom function to mark data as np.nan (missing). This function should
+        take as input the DataFrame and return the same DataFrame with np.nan where the
+        data is missing.
+    **kwargs : passed to pandas.DataFrame.interpolate()
+        `limit` keyword argument is set to `likelihood_consecutive`.
+
+    Returns
+    -------
+    df : pandas.DataFrame
+        Same `df` as input, with replaced values. If the trial is to be dropped,
+        returns empty DataFrame.
+
+    """
+    if len(bodyparts) == 0:
+        df_in = df.copy()
+    else:
+        df_in = df.copy()[bodyparts]
+
+    # apply custom marking-as-missing function
+    if custom_filter_fun is not None:
+        df_in = custom_filter_fun(df)
+
+    # get columns with a "likelihood" sub-column
+    cols = df_in.columns[df_in.columns.get_level_values(1).isin(["likelihood"])]
+
+    for col in cols:
+        # replace values with nan
+        df_in.loc[df_in[col] < likelihood_thresh, (col[0], ["x", "y"])] = np.nan
+
+        # check if we keep this trial
+        if df_in.loc[:, (col[0], "x")].isna().sum() / len(df_in) > likelihood_percent:
+            return pd.DataFrame()
+
+    # fill nan with interpolation
+    df_in = (
+        df_in.interpolate(limit=likelihood_consecutive, **kwargs)
+        .bfill(limit=likelihood_consecutive)
+        .ffill(limit=likelihood_consecutive)
+    )
+
+    # check if it was filled, if not, it means we drop this trial
+    if df_in.isnull().values.any():
+        return pd.DataFrame()
+
+    return df_in
+
+
+def read_dlc_file(filename: str, header: None | int | list = [1, 2]) -> pd.DataFrame:
+    """
+    Reads file output from DeepLabCut.
+
+    Wraps pandas.read_csv() or pandas.read_hdf() depending on `filename` extension.
+
+    Parameters
+    ----------
+    filename : str
+        Full path to the DeepLabCut file.
+    header : None, int or list, optional
+        Passed to pandas.read_csv(). Default is [1, 2] (to read DeepLabCut CSV files).
+
+    Returns
+    -------
+    df : pandas.DataFrame
+
+    """
+    if filename.endswith(".csv"):
+        df = pd.read_csv(filename, sep=",", skiprows=0, index_col=0, header=header)
+    elif filename.endswith(".h5"):
+        df = pd.read_hdf(filename)  # read table
+        df = df[df.columns.get_level_values(0)[0]]  # remove "scorer" level
+
+    return df
+
+
+def write_trial_file(trial_name: str, filename: str | None):
+    """
+    Write `trial_name` to `filename`.
+
+    Parameters
+    ----------
+    trial_name : str
+        Trial identifier (eg. file name).
+    filename : str or None
+        Path to the file where it is written. If it's None, no writing is done.
+
+    """
+    if filename:
+        with open(filename, "a") as fid:
+            fid.writelines(trial_name + "\n")
+
+
+def process_animal(
+    files_list: list,
+    animal: str,
+    cfg,
+    dropfile: str | None = None,
+    usefile: str | None = None,
+) -> pd.DataFrame:
+    """
+    Finds CSV files starting with specified animals ID, converts them to DataFrame.
+
+    Extracts the coordinates we're interested in, compute the feature we want and
+    align them on a single time vector. Returns the data labelled with animal and
+    trial number.
+
+    Parameters
+    ----------
+    files_list : list
+        List of CSV or H5 files.
+    animal : str
+        Animal ID.
+    cfg : Config
+        Config object from configuration file.
+    dropfile, usefile : str or None, optional
+        Files that will log dropped and used trials. Default is None (no file written).
+
+    Returns
+    -------
+    df_animal : pandas.DataFrame
+        DataFrame with animal-labelled data.
+
+    """
+    # limit files list to the animal
+    files_animal = [
+        file for file in files_list if os.path.basename(file).startswith(animal)
+    ]
+
+    # check there are files
+    if len(files_animal) == 0:
+        raise FileNotFoundError(f"No file found for animal '{animal}'.")
+
+    # set animal id and update pixel size
+    cfg.animal = animal
+    cfg.get_pixel_size()
+
+    df_animal_list = []  # prepare the aligned DataFrame list
+    trial = 0  # initialize trial counter
+
+    pbar = tqdm(files_animal)
+    for file in pbar:  # loop through files
+        pbar.set_description(f"Processing trial {trial}")
+
+        basename = os.path.basename(file)
+
+        # read data (with multi-indexed columns)
+        df_in = read_dlc_file(file, header=HEADER)
+
+        # data cleaning
+        df_in = clean_df(
+            df_in,
+            cfg.lh_thresh,
+            cfg.lh_percent,
+            cfg.lh_consecutive,
+            bodyparts=cfg.bodyparts,
+            custom_filter_fun=cfg.preprocess_df,
+            method=cfg.interp_method,
+        )
+
+        # check if we drop this trial because too much low-likelihood values
+        if df_in.empty:
+            pbar.write(f"[Warning] {basename} dropped.")
+            write_trial_file(basename, dropfile)
+            continue
+
+        # parse condition based on file name
+        condition = get_condition(basename, CONDITIONS)
+        if not condition:
+            # the condition was not parsed from the file name, so we drop it
+            pbar.write(
+                f"[Warning] Not able to attribute a condition to {basename},"
+                " skipping."
+            )
+            continue
+
+        df_tmp = pd.DataFrame()  # initialize DataFrame where we collect relevant data
+        df_out = pd.DataFrame()  # initialize output DataFrame
+
+        # get frames number
+        df_tmp["frames"] = df_in.index
+
+        # convert to frames to time
+        df_tmp["time"] = convert_frames_to_time(df_tmp["frames"], cfg.clip_duration)
+        if cfg.shift_time:
+            # shift time with the original, unshifted, stim timings
+            df_tmp["time"] = df_tmp["time"] - cfg.original_stim_time[0]
+
+        df_out["time"] = cfg.time_common  # common time vector for all time series
+
+        # compute requested features
+        for feature, computation in cfg.features.items():
+            # compute feature
+            df_tmp[feature] = computation(df_in)
+
+            # normalize if requested
+            if feature in cfg.features_norm:
+                df_tmp[feature] = (
+                    df_tmp[feature]
+                    - df_tmp[feature][df_tmp["time"] < cfg.stim_time[0]].mean()
+                )
+
+            # interpolate data on the common time vector and add it to the new DataFrame
+            # we do this to ensure that all data are sampled on the same time vector.
+            df_out[feature] = np.interp(df_out["time"], df_tmp["time"], df_tmp[feature])
+
+        # add trial number
+        df_out["trial"] = trial
+
+        # add unique trial ID
+        df_out["trialID"] = f"{animal}-{trial}"
+
+        # add condition
+        df_out["condition"] = condition
+
+        # keep track of the file name
+        df_out["filename"] = basename
+
+        # add new data to the rest
+        df_animal_list.append(df_out)
+
+        # increment the trial number
+        trial += 1
+
+        # log the file
+        write_trial_file(basename, usefile)
+
+    # concatenate all DataFrames
+    if len(df_animal_list) == 0:
+        raise ValueError(f"No data for {animal}. Most likely all trials were dropped.")
+    df_animal = pd.concat(df_animal_list)
+
+    # label the data with the animal ID
+    df_animal["animal"] = animal
+
+    return df_animal
+
+
+def get_pvalue_mean(df: pd.DataFrame, key: str, stim_time: list | tuple) -> float:
+    """
+    Perform a paired ttest between mean values before stim and after stim.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+    y : str
+        Key in `df`.
+    stim_time : 2-elements tuple or list
+        Stimulation onset and offset.
+
+    Returns
+    -------
+    pvalue : float
+        p-value.
+
+    """
+    # pre-stim
+    dfpre = df[df["time"] < stim_time[0]]
+    dfpre_group = dfpre.groupby("trialID")  # extract time series
+    mean_prestim = dfpre_group[key].mean().values  # get mean values
+
+    # during-stim
+    dfin = df[(df["time"] >= stim_time[0]) & (df["time"] <= stim_time[1])]
+    dfin_group = dfin.groupby("trialID")  # extract time series
+    mean_instim = dfin_group[key].mean().values  # get mean values
+
+    # paired ttest
+    result = stats.ttest_rel(mean_prestim, mean_instim)
+
+    return result.pvalue
+
+
+def get_quantif_metrics(
+    df: pd.DataFrame, metrics_map: dict, range_map: dict, conditions: list
+):
+    """
+    Compute quantitative metrics during stimulation to compare groups (conditions).
+
+    `df` must have in columns :
+        - the features of interest,
+        - a "condition" column that corresponds to the `conditions`.
+        - a "time" column that is used to select stimulation epoch.
+        - a "trialID" column that are unique to a time serie.
+    Returns a list of DataFrames, one for each feature.
+    An unpaired T-test is performed between the consecutive groups for each metrics.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+    metrics_map : dict
+        Mapping a feature to a function to apply to get the metric.
+    range_map : dict
+        Mapping a feature to time range in which the metric is computed.
+    conditions : list
+        List of conditions. Pairwise consecutive conditions will be used to compute
+        p-values. It is required to ensure the ordering.
+
+    Returns
+    -------
+    df_metrics : pandas.DataFrame
+        DataFrame with metrics, one column for each feature, along with conditions and
+        trial ID.
+    pvalues : dict
+        pvalues associated with each features, comparing pairs of consecutive groups.
+
+    """
+    # convert conditions to list
+    if not isinstance(conditions, list):
+        conditions = list(conditions)
+
+    # check if significance test will be performed
+    if len(conditions) < 2:
+        print(
+            "[Warning] Less than two conditions found, no significance test will be"
+            " performed."
+        )
+        flag_pvalue = False
+    else:
+        flag_pvalue = True
+
+    metrics_df_list = []  # prepare DataFrame with metrics
+    pvalues = {}  # prepare list of pvalues comparing the consecutive conditions
+    pbar = tqdm(metrics_map.items())
+    for feature, operations in pbar:
+        pbar.set_description(f"Computing {feature} metrics")
+
+        pvalues[feature] = {}
+
+        for metric, operation in operations.items():
+            # select stimulation epoch
+            df_stim = df[
+                (df["time"] >= range_map[feature][metric][0])
+                & (df["time"] < range_map[feature][metric][1])
+            ]
+
+            # get time vector
+            time = df_stim["time"].unique()
+
+            # group by conditions and trial ID
+            df_gp = df_stim.groupby(["condition", "trialID"])
+
+            # compute metrics for each time series
+            df_metric = df_gp[feature].apply(operation, time)
+            df_metric.name = f"{feature}-{metric}"
+
+            if flag_pvalue:
+                pvalue = []
+                for idx_condition in range(len(conditions) - 1):
+                    cond1 = conditions[idx_condition]
+                    cond2 = conditions[idx_condition + 1]
+                    pvalue.append(
+                        stats.ttest_ind(
+                            df_metric.loc[cond1], df_metric.loc[cond2]
+                        ).pvalue
+                    )
+            else:
+                pvalue = None
+
+            metrics_df_list.append(
+                df_metric.reset_index().set_index(["trialID", "condition"])
+            )  # append to the rest
+            pvalues[feature][metric] = pvalue  # append to the rest
+
+    # concatenate DataFrames along rows (merge)
+    df_metrics = pd.concat(metrics_df_list, axis=1).reset_index()
+
+    return df_metrics, pvalues
+
+
+def get_delays(
+    df: pd.DataFrame, features: list, stim_time: list | tuple, nstd: float = 3
+):
+    """
+    Find delay of response with respect to stimulation onset.
+
+    The motion onset is defined as the time point where the signal exceeds
+    `nstd` times the standard deviation during the pre-stimulation epoch (baseline).
+    A delay is computed for each trial of each animal.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+    features : list
+        Keys in `df`, used to compute delays.
+    stim_time : 2-elements list or tuple
+        Stimulation onset and offset.
+    nstd : int, optionnal
+        Multiplier of standard deviation for threshold definition. Default is 3.
+
+    Returns
+    -------
+    df_delays : pandas.DataFrame
+        List of delays for each animals and each trials.
+
+    """
+    # pre-stim
+    dfpre_group = df[df["time"] < stim_time[0]].groupby(["condition", "trialID"])
+    # during-stim
+    dfin_group = df[
+        (df["time"] >= stim_time[0]) & (df["time"] <= stim_time[1])
+    ].groupby(["condition", "trialID"])
+
+    df_delays_feature = []
+    for feature in features:
+        dfs = []  # initialize output
+        for (name, dfpre), (_, dfpost) in zip(dfpre_group, dfin_group):
+            prestd = dfpre[feature].std()  # get std
+
+            # find first time it reaches nstd this value after stim onset
+            values_above = dfpost["time"][dfpost[feature] > nstd * prestd]
+            if not values_above.empty:
+                onset = values_above.iloc[0]
+            else:
+                onset = np.nan
+
+            # collect results
+            dfs.append(
+                {
+                    "condition": name[0],
+                    "trialID": name[1],
+                    "delay": onset - stim_time[0],
+                }
+            )
+
+        df_delay = pd.DataFrame(dfs)  # convert to DataFrame
+        df_delay["feature"] = feature  # add related feature
+        df_delays_feature.append(df_delay)
+
+    df_delays = pd.concat(df_delays_feature).reset_index().drop(columns="index")
+
+    return df_delays
+
+
+def pvalue_to_stars(pvalue):
+    """
+    Convert p-values to stars.
+
+    Parameters
+    ----------
+    pvalue : float
+
+    Returns
+    -------
+    stars : str
+
+    """
+    if pvalue <= 0.001:
+        return "***"
+    elif pvalue <= 0.01:
+        return "**"
+    elif pvalue <= 0.05:
+        return "*"
+    return "ns"
+
+
+def add_stars_to_lines(pvalue, stim_time, ax, **kwargs):
+    """
+    Adds significance stars to specified ax based on given p-value.
+
+    Parameters
+    ----------
+    pvalue : float
+    stim_time : list or tuple
+    ax : matplotlib axes
+    **kwargs :
+        Options passed to matplotlib.axes.Axes.text.
+
+    Returns
+    -------
+    ax : matplotlib axes
+
+    """
+    stars = pvalue_to_stars(pvalue)  # get stars
+
+    # get text coordinates
+    x = (stim_time[0] + stim_time[1]) / 2  # middle of stim. epoch
+    y = ax.get_ylim()[1]  # top of the plot
+    y = y - y * 0.025  # offset
+
+    ax.text(
+        x, y, stars, horizontalalignment="center", verticalalignment="top", **kwargs
+    )
+
+    return ax
+
+
+def add_stars_to_bars(
+    x: list | tuple,
+    maxval: float,
+    pvalue: float | str,
+    ax: plt.Axes | None = None,
+    line_kws: dict = {},
+    text_kws: dict = {},
+) -> plt.Axes:
+    """
+    Adds significance stars to bar plot based on given p-value.
+
+    Parameters
+    ----------
+    x : list or tuple of 2 int
+        Bars location, index-based.
+    maxval : float
+        Maximum value of what is plotted to adjust where the stars are added.
+    pvalue : float or string
+        If float, it is converted to a number of star. If str, it is written as is.
+    tick_size : float
+        Size of line tick, expressed as fraction of total height.
+    ax : matplotlib axes
+        Axes in which to add stars.
+    line_kws : dict
+        Options passed to matplotlib.axes.Axes.plot.
+    text_kws : dict
+        Options passed to matplotlib.axes.Axes.text.
+
+    Returns
+    -------
+    ax : matplotlib Axes
+
+    """
+    if pvalue is None:
+        return ax
+
+    if not isinstance(pvalue, str):
+        stars = pvalue_to_stars(pvalue)  # get stars
+
+    axes_height = np.diff(ax.get_ylim())[0]  # axes height
+
+    # get line coordinates
+    xline1 = x[0]  # first bar
+    xline2 = x[1]  # second bar
+    yline_tick = maxval * 1.075  # where the ticks will be
+    yline_top = yline_tick + 0.015 * axes_height  # where the line will be
+
+    # add line
+    ax.plot(
+        [xline1, xline1, xline2, xline2],
+        [yline_tick, yline_top, yline_top, yline_tick],
+        **line_kws,
+    )
+
+    # get text coordinates
+    xtxt = np.mean(x)  # should be between two bars
+    ytxt = yline_top + 0.035 * axes_height  # add offset with respect to line
+
+    # add text
+    ax.text(
+        xtxt,
+        ytxt,
+        stars,
+        horizontalalignment="center",
+        verticalalignment="top",
+        **text_kws,
+    )
+
+    return ax
+
+
+def add_patch(xmin: float, xmax: float, ax: plt.Axes, **kwargs) -> plt.Axes:
+    """
+    Plots a box from xmin to xmax, spanning all vertical space.
+
+    Parameters
+    ----------
+    xmin, xmax : scalar
+        Lower, Upper limits of the box to plot.
+    ax : matplotlib Axes
+        Axis in which to plot the box.
+    **kwargs : passed to Axes.axvspan
+
+    Returns
+    -------
+    ax : matplotlib Axes
+        Handle to axes.
+
+    """
+    # plot patch
+    ax.axvspan(xmin, xmax, zorder=-1, **kwargs)
+
+    return ax
+
+
+def add_arrows(
+    ax: plt.Axes, right: bool = True, top: bool = True, size: float | None = None
+) -> plt.Axes:
+    """
+    Add arrows to the axes' tips.
+
+    Parameters
+    ----------
+    ax : matplotlib Axes
+    right, top : bool, optional
+        Add arrow on the x or y axis. Default is True.
+    size : float, optional
+        Size of the arrow marker. Default is None (matplotlib's default).
+
+    Returns
+    -------
+    ax : matplotlib Axes
+
+    """
+    if right:
+        ax.plot(1, 0, ">k", markersize=size, transform=ax.transAxes, clip_on=False)
+    if top:
+        ax.plot(0, 1, "^k", markersize=size, transform=ax.transAxes, clip_on=False)
+
+    return ax
+
+
+def set_nticks(ax: plt.Axes, nxticks: int | None, nyticks: int | None) -> plt.Axes:
+    """
+    Set number of ticks on axes.
+
+    Parameters
+    ----------
+    ax : matplotlib Axes
+    nxticks, nyticks : int or "auto" or None
+        Number of ticks in x and y axes. Ignored if None.
+
+    Returns
+    -------
+    ax : matplotlib Axes.
+
+    """
+    if nxticks:
+        if nxticks == "auto":
+            ax.locator_params(axis="x", nbins="auto")
+        else:
+            ax.locator_params(axis="x", nbins=nxticks + 1)
+
+    if nyticks:
+        if nyticks == "auto":
+            ax.locator_params(axis="y", nbins="auto")
+        else:
+            ax.locator_params(axis="y", nbins=nyticks + 1)
+
+    return ax
+
+
+def on_pick(event, df: pd.DataFrame):
+    """
+    Callback function called when a line is clicked. Prints the corresponding animal
+    and trial.
+
+    Parameters
+    ----------
+    event : Event
+
+
+    """
+    # seaborn labels are "childXX" where XX is the index of the hue
+    labelid = int(event.artist.get_label().split("_child")[1])
+    label = df["filename"].unique()[labelid]
+
+    print(label)
+
+
+def nice_plot_serie(
+    df: pd.DataFrame,
+    x="time",
+    y="",
+    xlabel="",
+    ylabel="",
+    pvalue: float | None = None,
+    stim_time: list | tuple | None = None,
+    ylim: list | None = None,
+    ax: plt.Axes | None = None,
+    kwargs_plot: dict = {},
+) -> plt.Axes:
+    """
+    Nice plot of features, with mean and sem.
+
+    Plot options are given in `kwargs_plot`. The latter must be returned by `set_plot_style`,
+    and contain keys according to what was requested to be plotted.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+    x, y : str
+        Keys in `df`.
+    xlabel, ylabel : str
+        Labels of x and y axes.
+    pvalue : float or None
+        pvalue to display during stim.
+    stim_time : 2-elements list or tuple or None
+        Stimulation onset and offsets to draw the stimulation patch.
+    ylim : list or None
+        Limit of y axis.
+    ax : matplotlib Axes
+    kwargs_plot : dict
+        Dictionnary with plot style options.
+
+    Returns
+    -------
+    ax : matplotlib Axes
+
+    """
+    if PLOT_TRIALS:
+        # plot individual trials
+        palette = len(df["trialID"].unique()) * [kwargs_plot["trial"]["color"]]
+        ax = sns.lineplot(
+            df,
+            x=x,
+            y=y,
+            hue="trialID",
+            estimator=None,
+            errorbar=None,
+            palette=palette,
+            ax=ax,
+            err_kws=kwargs_plot["sem"],
+            **kwargs_plot["trial"],
+        )
+
+    if PLOT_ANIMAL:
+        # plot mean per animal
+        palette = kwargs_plot["animal"]["color"]
+        ax = sns.lineplot(
+            df,
+            x=x,
+            y=y,
+            hue="animal",
+            estimator="mean",
+            errorbar="se",
+            palette=palette,
+            ax=ax,
+            err_kws=kwargs_plot["sem"],
+            **kwargs_plot["animal"],
+        )
+
+    if PLOT_CONDITION:
+        # plot mean per animal
+        palette = kwargs_plot["condition"]["color"]
+        ax = sns.lineplot(
+            df,
+            x=x,
+            y=y,
+            hue="condition",
+            hue_order=CONDITIONS.keys(),
+            estimator="mean",
+            errorbar="se",
+            palette=palette,
+            ax=ax,
+            err_kws=kwargs_plot["sem"],
+            **kwargs_plot["condition"],
+        )
+
+    if PLOT_POOLED:
+        # plot pooled mean
+        ax = sns.lineplot(
+            df[df["condition"].isin(PLOT_POOLED)],
+            x=x,
+            y=y,
+            estimator="mean",
+            errorbar="se",
+            ax=ax,
+            err_kws=kwargs_plot["sem"],
+            **kwargs_plot["pooled"],
+        )
+
+    # adjust limit
+    if ylim:
+        ax.set_ylim(ylim)
+
+    # plot styling
+    if kwargs_plot["arrow"]:
+        # add arrows at axes tips
+        ax = add_arrows(ax, size=kwargs_plot["arrow_size"])
+
+    # determine if the legend should be shown
+    if PLOT_ANIMAL_MONOCHROME or PLOT_TRIALS:
+        # remove legend
+        ax.get_legend().remove()
+
+    # set number of axes ticks
+    ax = set_nticks(ax, kwargs_plot["nxticks"], kwargs_plot["nyticks"])
+
+    # set axes labels
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+
+    # add stimulation box
+    if stim_time:
+        ax = add_patch(stim_time[0], stim_time[1], ax, **kwargs_plot["stim"])
+
+    ax = add_stars_to_lines(pvalue, stim_time, ax, fontsize="large")
+
+    return ax
+
+
+def nice_plot_metrics(
+    df: pd.DataFrame,
+    x="condition",
+    y="",
+    pvalue: float = 0,
+    title="",
+    ax: plt.Axes | None = None,
+    kwargs_plot: dict = {},
+) -> plt.Axes:
+    """
+    Nice plot of quantitative metrics to compare the stimulation effect on injected
+    animals, compared to controls.
+
+    Plot options are given in `kwargs_plot`. The latter must be returned by
+    `set_plot_style`, and contain keys according to what was requested to be plotted.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+    x, y : str
+        Keys in `df`.
+    pvalue : float
+        p-value to plot stars. If 0, no stars will be plotted.
+    title : str
+        Axes title.
+    ax : matplotlib Axes
+    kwargs_plot : dict
+        Dictionnary with plot style options.
+
+    Returns
+    -------
+    ax : matplotlib Axes
+
+    """
+    ax = sns.barplot(
+        df,
+        x=x,
+        y=y,
+        hue=x,
+        order=CONDITIONS.keys(),
+        estimator="mean",
+        errorbar="se",
+        ax=ax,
+        **kwargs_plot["bars"],
+    )
+
+    # add significance
+    if pvalue:
+        # get bar + errorbar value, sorting as sorted in the plot
+        maxvals = (df.groupby(x)[y].mean() + df.groupby(x)[y].sem())[
+            CONDITIONS.keys()
+        ].values
+        c = 0
+        for pval in pvalue:
+            ax = add_stars_to_bars(
+                [c, c + 1],
+                max(maxvals[c : c + 2]),
+                pval,
+                ax=ax,
+                line_kws={"color": "k"},
+                text_kws={"fontsize": "large"},
+            )
+            c += 1
+
+    # remove axes labels
+    ax.set_xlabel("")
+    ax.set_ylabel("")
+
+    # move x axis to 0
+    ax.spines["bottom"].set_position("zero")
+
+    # plot styling
+    if kwargs_plot["arrow"]:
+        # add arrows at axes tips
+        ax = add_arrows(ax, right=False, size=kwargs_plot["arrow_size"])
+
+    # set title
+    ax.set_title(title)
+
+    return ax
+
+
+def nice_plot_delays(
+    df: pd.DataFrame,
+    x="",
+    y="",
+    hue="",
+    xlabels=dict,
+    ax: plt.Axes | None = None,
+    kwargs_plot: dict = {},
+) -> plt.Axes:
+    """
+    Nice bar plot of delays.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+    x, y, hue : str
+        Keys in `df`.
+    xlabels : dict
+        Mapping names found in 'x' in `df` to another values.
+    ax : matplotlib Axes
+
+    Returns
+    -------
+    ax : matplotlib Axes
+
+    """
+    # modify x values to change their labels in the plot
+    df_plot = df.copy()
+    df_plot["feature"] = df_plot["feature"].map(xlabels)
+
+    ax = sns.barplot(
+        df_plot,
+        x=x,
+        y=y,
+        hue=hue,
+        estimator="mean",
+        errorbar="se",
+        ax=ax,
+        **kwargs_plot["delays"],
+    )
+
+    # add/remove axes labels
+    ax.set_xlabel("")
+    ax.set_ylabel("delay (ms)")
+
+    # plot styling
+    if kwargs_plot["arrow"]:
+        # add arrows at axes tips
+        ax = add_arrows(ax, right=False, size=kwargs_plot["arrow_size"])
+
+    return ax
+
+
+def nice_plot_raster(
+    df: pd.DataFrame,
+    x: str = "",
+    y: str = "",
+    features: list | tuple = [""],
+    conditions: list | tuple = [""],
+    xlabel: str = "",
+    clabels: dict = {},
+    kwargs_plot: dict = {},
+    quantile: float = 0.99,
+    **kwargs,
+) -> plt.figure:
+    """
+    Display time series as a temporal raster plot.
+
+    The input DataFrame should be generated with `process_animal`.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Input data.
+    x : str
+        Key in `df`. Should allow to extract time series (typically, "time").
+    y : str
+        Key in `df`. Should allow to extract trials (typically "trialID").
+    features : list | tuple
+        Keys in `df` that will be plotted in different subplots, sharing their x-axis.
+    conditions : list | tuple
+        Values in `df["condition"]` that will be plotted, sharing their colorbar.
+    xlabel : str
+        Label of x axis.
+    clabels : dict
+        Mapping feature to colorbar label.
+    kwargs_plot : dict
+        Dictionnary with plot style options.
+    quantile : float, optional
+        Quantile to use to get colormap range. Default is 0.99.
+    **kwargs : passed to pyplot.pcolormesh.
+
+    Returns
+    -------
+    fig : matplotlib Figure
+
+    """
+    # select data
+    df_in = df.copy()
+    df_in = df_in[df_in["condition"].isin(conditions)]
+
+    # get shapes
+    nconditions = len(conditions)
+    nfeatures = len(features)
+    time = df_in[x].unique()
+    ntimes = len(time)
+
+    # get values range
+    cranges = [
+        [df[feature].quantile(1 - quantile), df[feature].quantile(quantile)]
+        for feature in features
+    ]
+
+    # prepare figure
+    fig, axs = plt.subplots(
+        nfeatures, nconditions, sharex=True, squeeze=False, figsize=(15, 8)
+    )
+    fig.subplots_adjust(right=0.9)
+
+    for idx_condition in range(nconditions):
+        condition = conditions[idx_condition]
+        df_cond = df_in[df_in["condition"] == condition]
+        trials = df_cond[y].unique()
+        ntrials = len(trials)
+
+        # get indices of change of animals
+        ser = df_cond.groupby([y])["animal"].unique()
+        ind_animals = np.where(ser.ne(ser.shift().bfill()))[0]
+
+        for idx_feature in range(nfeatures):
+            feature = features[idx_feature]
+
+            # prepare raster data
+            data = np.reshape(df_cond[feature].values, (ntrials, ntimes))
+
+            # raster plot
+            p = axs[idx_feature, idx_condition].pcolormesh(
+                time,
+                trials,
+                data,
+                vmin=cranges[idx_feature][0],
+                vmax=cranges[idx_feature][1],
+                **kwargs,
+            )
+
+            # add animal delimitation
+            _ = [
+                axs[idx_feature, idx_condition].axhline(
+                    loc - 0.5, linewidth=1.5, color="#ec1b8a"
+                )
+                for loc in ind_animals
+            ]
+
+            # add colorbar if it's the last panel on the right
+            if idx_condition == nconditions - 1:
+                axpos = (
+                    axs[idx_feature, idx_condition]
+                    .get_position()
+                    .get_points()
+                    .flatten()
+                )
+                axheight = axpos[3] - axpos[1]
+                cax = fig.add_axes((axpos[2] + 0.01, axpos[1], 1 / 75, axheight))
+                plt.colorbar(p, label=clabels[feature], cax=cax)
+
+            # add xlabel if it's the last panel on the bottom
+            if idx_feature == nfeatures - 1:
+                axs[idx_feature, idx_condition].set_xlabel(xlabel)
+
+            # add title if it's the first panel on the top
+            if idx_feature == 0:
+                axs[idx_feature, idx_condition].set_title(condition)
+
+            # adjust style
+            axs[idx_feature, idx_condition] = set_nticks(
+                axs[idx_feature, idx_condition],
+                kwargs_plot["nxticks"],
+                None,
+            )
+            axs[idx_feature, idx_condition].set(yticklabels=[])
+            axs[idx_feature, idx_condition].tick_params(left=False)
+            axs[idx_feature, idx_condition].spines.right.set_visible(True)
+            axs[idx_feature, idx_condition].spines.top.set_visible(True)
+
+    return fig
+
+
+def process_directory(
+    directory: str,
+    animals: tuple | list,
+    conditions: dict,
+    outdir: str | None = None,
+):
+    """
+    Process the directory.
+
+    Looks for CSV file, link them to animals, get quantitative features and plot
+    trial-averaged sequences.
+
+    Parameters
+    ----------
+    directory : str
+        Input directory.
+    animals : list, tuple
+        List of animals to perform the analysis on.
+    conditions : dict
+        Conditions and how to get them from the file name.
+    outdir : str, optional
+        If not None, saves figures there. Default is None.
+
+    Returns
+    -------
+    df : pandas.DataFrame
+
+    """
+    # --- Prepare data
+    # look for settings.toml file
+    settings_file = os.path.join(directory, "settings.toml")
+    cfg = Config(settings_file)
+
+    # try with .h5 files
+    files_list = [
+        os.path.join(directory, filename)
+        for filename in os.listdir(directory)
+        if filename.endswith(".h5")
+    ]
+
+    if len(files_list) == 0:
+        # if no h5 files found, look for .csv files instead.
+        files_list = [
+            os.path.join(directory, filename)
+            for filename in os.listdir(directory)
+            if filename.endswith(".csv")
+        ]
+
+    # create files that logs used and dropped trials
+    if outdir:
+        # create output directory if needed
+        if not os.path.isdir(outdir):
+            os.makedirs(outdir)
+
+        dropfile = os.path.join(outdir, "dropped.txt")
+        open(dropfile, "w").close()
+        usefile = os.path.join(outdir, "used.txt")
+        open(usefile, "w").close()
+    else:
+        dropfile = None
+        usefile = None
+
+    # --- Process data
+    df_align_list = []  # prepare list of DataFrames
+    pbar = tqdm(animals)
+    for animal in pbar:
+        pbar.set_description(f"Processing animal {animal}")
+        df_align_list.append(
+            process_animal(files_list, animal, cfg, dropfile=dropfile, usefile=usefile)
+        )
+    df_align = pd.concat(df_align_list)  # concatenate in a single DataFrame
+
+    if PLOT_CONDITION_OFF:
+        # remove conditions that will not be plotted
+        df_plot = df_align[~df_align["condition"].isin(PLOT_CONDITION_OFF)]
+    else:
+        df_plot = df_align  # take all conditions
+
+    # get pre/during stim p-values
+    pvalues_stim = {
+        feature: get_pvalue_mean(df_plot, feature, cfg.stim_time)
+        for feature in cfg.features.keys()
+    }
+
+    # get in-stim quantitative metric
+    df_metrics, pvalues_metrics = get_quantif_metrics(
+        df_align, cfg.features_metrics, cfg.features_metrics_range, conditions.keys()
+    )
+
+    # delays before motion onset for each feature
+    df_delays = get_delays(df_plot, cfg.features, cfg.stim_time, nstd=cfg.nstd)
+    df_delays["delay"] = df_delays["delay"] * 1000  # convert to ms
+
+    # --- Plot results
+    kwargs_plot = setup_plot_style(style_file=STYLE_FILE)
+
+    # - Features
+    figs = []
+    pbar = tqdm(cfg.features.keys())
+    for feature in pbar:
+        if hasattr(cfg, "features_off"):  # for backward compatibility
+            if feature in cfg.features_off:
+                continue
+
+        pbar.set_description(f"Plotting {feature}")
+
+        # prepare figure
+        nmetrics = len(cfg.features_metrics[feature])
+        nrows = 1
+        ncols = 3 + nmetrics  # 2 for time series, then 1 for each metric
+        fig = plt.figure(figsize=kwargs_plot["figsize"])
+        axs = []
+        # create axis for time serie
+        ax = fig.add_subplot(nrows, ncols, (1, 3))
+        axs.append(ax)
+        # create axes for in-stim metrics
+        for idx, sharey in zip(
+            range(4, ncols + 1), cfg.features_metrics_share[feature].values()
+        ):
+            ax = fig.add_subplot(nrows, ncols, idx, sharey=axs[0] if sharey else None)
+            axs.append(ax)
+
+        # time series
+        if feature in cfg.features_ylim:
+            ylim = cfg.features_ylim[feature]
+        else:
+            ylim = None
+        nice_plot_serie(
+            df_plot,
+            x="time",
+            y=feature,
+            xlabel=cfg.xlabel_line,
+            ylabel=cfg.features_labels[feature],
+            pvalue=pvalues_stim[feature],
+            stim_time=cfg.stim_time,
+            ylim=ylim,
+            ax=axs[0],
+            kwargs_plot=kwargs_plot,
+        )
+        if cfg.xlim:
+            axs[0].set_xlim(cfg.xlim)
+
+        # add callback on lines
+        fig.canvas.mpl_connect("pick_event", partial(on_pick, df=df_plot))
+
+        # metrics bars
+        for metric, ax in zip(cfg.features_metrics[feature], axs[1::]):
+            nice_plot_metrics(
+                df_metrics,
+                x="condition",
+                y=f"{feature}-{metric}",
+                pvalue=pvalues_metrics[feature][metric],
+                title=metric,
+                ax=ax,
+                kwargs_plot=kwargs_plot,
+            )
+
+        plt.show()
+        figs.append(fig)
+
+    # - Raster plot (here all conditions are plotted)
+    print("Plotting raster plot...", end="", flush=True)
+    figr = nice_plot_raster(
+        df_align,  # plot all conditions
+        x="time",
+        y="trialID",
+        features=list(cfg.features.keys()),
+        conditions=list(conditions.keys()),
+        xlabel=cfg.xlabel_line,
+        clabels=cfg.features_labels,
+        kwargs_plot=kwargs_plot,
+        quantile=0.99,
+    )
+    plt.show()
+    print("\t Done.")
+
+    # - Delays
+    print("Plotting delays...", end="", flush=True)
+    figd, axd = plt.subplots(figsize=kwargs_plot["figsize"])
+    nice_plot_delays(
+        df_delays,
+        x="feature",
+        y="delay",
+        hue="condition",
+        xlabels=cfg.features_labels,
+        ax=axd,
+        kwargs_plot=kwargs_plot,
+    )
+    print("\t Done.")
+
+    # --- Save results
+    if outdir:
+        # save figures
+        for fig, feature in zip(figs, cfg.features):
+            pbar.set_description(f"Saving figure {feature}")
+            fig.savefig(os.path.join(outdir, f"fig_{feature.replace('_', '')}.svg"))
+        figd.savefig(os.path.join(outdir, "fig_delays.svg"))
+        figr.savefig(os.path.join(outdir, "fig_raster.svg"))
+
+        # save table
+        df_align.to_csv(os.path.join(outdir, "features_time_series.csv"), index=False)
+
+        # save parameters (only the last pixel size used will be written)
+        cfg.write_parameters_file(outdir, name="analysis_parameters.toml")
+
+    else:
+        print(
+            (
+                "[Warning] No output directory specified : "
+                "parameters and dropped trials were not written!"
+            )
+        )
+
+    return df_align, df_metrics, df_delays
+
+
+# --- Call ---
+if __name__ == "__main__":
+    # - Full path to the directory with CSV files
+    directory = "/path/to/dlc/results/"
+
+    # - Output directory where figures and mean time series will be saved
+    # do not save anything :
+    # outdir = None
+    # create a "results" subdirectory :
+    outdir = os.path.join(
+        directory, f"results_{"-".join([animal for animal in ANIMALS])}"
+    )
+    # choose directly where to save results :
+    # outdir = /path/to/custom/directory
+
+    df, metrics, delays = process_directory(
+        directory, ANIMALS, CONDITIONS, outdir=outdir
+    )

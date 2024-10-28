@@ -1,0 +1,19 @@
+# features-from-dlc script settings file
+#
+# This file lists physical parameters of the experiments to be analysed together.
+# Parameters related to time can't be changed per-animal.
+# The first [default] parameters are used by default, and are superseded by values in
+# each animals, if any.
+# If an entry is missing, the default value from the configuration file is used instead.
+
+clip_duration = 2  # duration of the clip, this determines the frame-time conversion
+stim_time = [0.5, 1]  # [start, end] in same units as clip_duration
+framerate = 25  # framerate for the common time vector, used to align all time series
+
+[default]
+pixel_size = 0.3497757518083765  # pixel size in mm
+
+# Below, you can override the pixel size for each animals. If missing, the default
+# value will be used. Timings settings can't be defined per-animal.
+[GN88]
+pixel_size = 0.294875416  # pixel size in mm

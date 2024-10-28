@@ -1,0 +1,64 @@
+# TOML configuration file to specify plot styles.
+# 
+# Specify here the stimulation patch color and transparency (alpha),
+# line colors and width for individual trace, mean per animal and overall mean,
+# bar plots and the axes properties (width, arrows, etc.).
+#
+# Keep that one as a working template and copy it for specific plots.
+
+[stim]  # stimulation patch
+color = [0.7961, 0.9451, 0.9961]  # color (RGB 0-1)
+alpha = 1  # transparency
+label = "stimulation"  # legend
+
+[trial]  # individual trial lines
+color = [0.2, 0.2, 0.2]  # color (RGB 0-1)
+alpha = 0.25  # transparency
+linewidth = 1  # thickness
+picker = true  # allow to pick lines on click
+pickradius = 3  # pick tolerance in points
+
+[animal_monochrome]  # mean per animal when all are plotted in the same color
+color = [0.1, 0.1, 0.1]  # color (RGB 0-1)
+alpha = 1  # transparency
+linewidth = 1.5  # thickness
+
+[animal_color]  # mean per animal - choose a color palette
+color = "Set2"
+alpha = 1  # transparency
+linewidth = 1.5  # thickness
+
+[condition]  # mean per condition - choose a color palette
+color = "Set2"
+alpha = 1  # transparency
+linewidth = 1.5  # thickness
+
+[pooled]  # overall mean
+color = [0.7333, 0.1255, 0.1490]  # color (RGB 0-1)
+alpha = 1  # transparency
+linewidth = 3  # thickness
+
+[sem]  # shaded area (applies to all - the color will be the same as the line)
+linewidth = 0
+alpha = 0.35
+
+[bars]  # quantifying metrics bars next to time series
+capsize = 0.1  # error bar cap size
+edgecolor = "k"  # edge color
+palette = "Set2"  # ordered list of colors for conditions
+
+[delays]  # bar plots of delays
+capsize = 0.1  # error bar cap size
+edgecolor = "k"  # edge color
+palette = "Set2"  # ordered list of colors for conditions
+
+[axes]  # axes spines
+figsize = [10, 8]  # figures size
+grid = false  # display the grid
+arrow_tip = true  # add arrows at the tip of axes
+arrow_size = 15  # arrows size
+linewidth = 2  # axes thickness
+nxticks = 4  # number of ticks in X axis, "auto" for default
+nyticks = 4  # number of ticks in Y axis, "auto" for default
+fontfamily = "Arial"  # font
+fontsize = 16  # font size in points
