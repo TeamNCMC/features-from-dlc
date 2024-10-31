@@ -34,24 +34,32 @@ To use the notebooks, two options :
 - Use Jupyter directly in its web browser interface : from the terminal, activate the conda environment : `conda activate ffd`, then launch Jupyter : `jupyter lab /path/to/the/notebooks/notebook.ipynb`
 
 ##  Using the video_cutter script
-This script (/scripts/video_cutter.py) is used to cut long recording containing multiple stimulations into single-stimulation clip.
+This script (`/scripts/video_cutter.py`) is used to cut long recording containing multiple stimulations into single-stimulation clip.
+
+It uses the video file and a corresponding stimulation trace stored as a text or binary file.
 
 To use it, first install required dependencies following steps 1-5 in the [Quick start](#quick-start) section.  
 Then, you need to install ffmpeg on your system. If it is not the case already you can follow this for Windows :  
-1. Download the latest "essential" build from [here](https://www.gyan.dev/ffmpeg/builds/). Unzip it somewhere sensible (in a "Programs" directory or something), and copy the path to the bin folder (making sure it contains both 'ffmpeg.exe' and 'ffprobe.exe').
+1. Download the latest "essential" build from [here](https://www.gyan.dev/ffmpeg/builds/). Unzip it somewhere relevant (in a "Programs" directory or something), and copy the path to the `bin` folder (making sure it contains both 'ffmpeg.exe' and 'ffprobe.exe').
 2. Paste this path in the `FFMPEG_BIN_DIR` variable. In the event ffmpeg is added to your PATH (eg. `ffmpeg` is recognised in a terminal), you can leave `FFMPEG_BIN_DIR` set to an empty string (`""`).
 3. Fill in the parameters according to your need.
 3. From the terminal with the ffd environment activated, browse to the script location :  
-> `conda activate ffd`  
-> `cd path/to/features-from-dlc/scripts/`
+```bash
+conda activate ffd
+cd path/to/features-from-dlc/scripts/
+```
 
 And run the script :  
-> `python video_cutter.py path/to/your/videos`
+```bash
+python video_cutter.py path/to/your/videos
+```
 
 The script is built as a command line interface (cli), for detailed usage, use :  
-`python video_cutter --help`
+```bash
+python video_cutter --help
+```
 
-The script processes all videos found in the input directory that have a txt/csv/bin file with the same name. The latter is read to determine the stimulation onsets. Extracted clips are created in {video-name}-cropped folder and are numbered from 0 to the number of stimulations found in the laser file.
+The script processes all videos found in the input directory that have a txt/csv/bin file with the same name. The latter is read to determine the stimulation onsets. Extracted clips are created in {video-name}-cropped folder and are numbered from 0 to the number of stimulations found in the stimulation file.
 
 ### Notes
 - The format of txt files exported from Labscribe depends on its version... Sometimes the values are separated by commas (`,`), sometimes tabulations. To be sure, open the file with a text editor and see if there are "," or big spaces between values on a row. Edit the `SEP` parameter accordingly in the script.
@@ -113,12 +121,12 @@ Optionnaly, you can have a settings.toml file next to DLC files to analyze. It s
    - `ANIMALS` : a tuple (`(a, b, c)`, or `(a, )` for single element). Only files beginning by those will be processed.
    - `CONDITIONS` : a dictionary (`{key1: values1, key2: values2}`). This maps a condition name ("key1", "key2" will appear on the graphs) to a _filter_. This filter is used to assign a file to a condition based on its file name. The beginning of the file name has priority, if it begins by something in the values, it is assigned to the corresponding condition, whether there is another match somewhere else in the file name.  
    Examples :  
-       `conditions = {"control": ["GN70"], "low": ["10mW"], "high": ["20mW"]}`  
+       `conditions = {"control": ["animal70"], "low": ["10mW"], "high": ["20mW"]}`  
        filename -> condition :  
-       GN70_10mW_blabla.h5 -> "control"  
-       GN70_20mW_blabla.h5 -> "control"  
-       GN71_10mW_blabla.h5 -> "low"  
-       GN81_20mW_blabla.h5 -> "high"  
+       animal70_10mW_blabla.h5 -> "control"  
+       animal70_20mW_blabla.h5 -> "control"  
+       animal71_10mW_blabla.h5 -> "low"  
+       animal81_20mW_blabla.h5 -> "high"  
 3. Fill the `- Options` section. Those are the display options, eg. what to plot and how :
    - `PLOT_POOLED`: `None` or a list of conditions (`["a"]` or `["a", "b"]`). Conditions whose trials are pooled to plot a pooled mean and sem. Useful when conditions are "Control" and "Injected" for example. If `None`, this is not plotted.
    - `PLOT_TRIALS`: `True` or `False`. Whether to plot individual trials. When there are a lot, it's a good idea not to show them to not clutter the graphs.

@@ -33,9 +33,9 @@ specify plot styles (config_plot.toml).
 Requirements
 ------------
 - CSV or H5 files to analyze should be placed in one directory.
-- CSV or H5 files names should begin by the animals ID (eg. GN20_blablabla.csv).
+- CSV or H5 files names should begin by the animals ID (eg. animal20_blablabla.csv).
 - CSV or H5 files names should contain a bit that identify the condition
-(eg. GN20_blabla_20mW_blabla.csv).
+(eg. animal20_blabla_20mW_blabla.csv).
 - A configs/config_plot.toml file must exist.
 - A configs/xxx.py file must exist, xxx is defined as `MODALITY` at the top of this
 script.
@@ -214,12 +214,12 @@ def get_condition(filename: str, conditions_map: dict) -> str | None:
     filters (see example below).
 
     Example :
-        conditions = {"control": ["GN70"], "low pow.": ["10mW"], "high pow.": ["20mW"]}
+        conditions = {"control": ["animal70"], "low pow.": ["10mW"], "high pow.": ["20mW"]}
         filename -> returned condition with this function :
-            - GN70_10mW_blabla.h5 -> "control"
-            - GN70_20mW_blabla.h5 -> "control"
-            - GN71_10mW_blabla.h5 -> "low pow."
-            - GN81_20mW_blabla.h5 -> "high pow."
+            - animal70_10mW_blabla.h5 -> "control"
+            - animal70_20mW_blabla.h5 -> "control"
+            - animal71_10mW_blabla.h5 -> "low pow."
+            - animal81_20mW_blabla.h5 -> "high pow."
 
     Parameters
     ----------
