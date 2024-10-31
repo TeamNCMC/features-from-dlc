@@ -3,23 +3,40 @@ This repository contains a main script called `features_from_dlc` that is used t
 
 You'll also find some utility scripts in the scripts folder, as well as separate notebooks (.ipynb files) in the notebooks directory.
 
-##  Using notebooks
-To use the notebooks, you first need to install some things. If conda is already installed, ignore steps 1-2. Those steps need to be done only once.
+Jump to :
+- [Install requirements](#quick-start)
+- [The `video_cutter` script](#using-the-video_cutter-script)
+- [The `features_from_dlc` script](#the-features_from_dlc-script)
+
+##  Quick start
+To use the scripts and notebooks, you first need to install some things. If conda is already installed, ignore steps 1-2. Those steps need to be done only once.
+
 1. Install [miniconda3](https://docs.anaconda.com/miniconda/#id2) as user, add conda to PATH and make it the default interpreter.
 2. Open a terminal (PowerShell in Windows) and run `conda init`. Restart the terminal.
 3. Download, unzip and put this repository in a smart location (eg. `~/programs` or whatever).
 4. Browse to this location from the terminal :
-  ```cd /path/to/the/smart/location/features-from-dlc```
-5. Create a virtual environment named "ffd" with the required packages, using the provided `environment.yml file` : `conda env create -f environment.yml`
+  ```bash
+  cd /path/to/the/smart/location/features-from-dlc
+  ```
+5. Create a virtual environment named "ffd" with the required packages, using the provided `environment.yml file` : 
+  ```bash
+  conda env create -f environment.yml
+  ```
 
-You should be ready to use notebooks ! To do so, two options :
+You should be ready to use the scripts and notebooks !
+
+To use the script, have a look at the instructions :
+- [`video_cutter.py`](#using-the-video_cutter-script)
+- [`features_from_dlc.py`](#the-features_from_dlc-script)
+
+To use the notebooks, two options :
 - Use an IDE with Jupyter notebooks support such as [Visual Studio Code](https://code.visualstudio.com/download). Install the Python and Jupyter extensions (the squared pieces on the left panel). Open the notebook with vscode, on the top right you should be able to select a kernel : choose "ffd".
 - Use Jupyter directly in its web browser interface : from the terminal, activate the conda environment : `conda activate ffd`, then launch Jupyter : `jupyter lab /path/to/the/notebooks/notebook.ipynb`
 
-##  Using the video-cutter script
-This script (/scripts/video-cutter.py) is used to cut long recording containing multiple stimulations into single-stimulation clip.
+##  Using the video_cutter script
+This script (/scripts/video_cutter.py) is used to cut long recording containing multiple stimulations into single-stimulation clip.
 
-To use it, first install required dependencies following steps 1-5 in the [Using notebook](#using-notebooks) section.  
+To use it, first install required dependencies following steps 1-5 in the [Quick start](#quick-start) section.  
 Then, you need to install ffmpeg on your system. If it is not the case already you can follow this for Windows :  
 1. Download the latest "essential" build from [here](https://www.gyan.dev/ffmpeg/builds/). Unzip it somewhere sensible (in a "Programs" directory or something), and copy the path to the bin folder (making sure it contains both 'ffmpeg.exe' and 'ffprobe.exe').
 2. Paste this path in the `FFMPEG_BIN_DIR` variable. In the event ffmpeg is added to your PATH (eg. `ffmpeg` is recognised in a terminal), you can leave `FFMPEG_BIN_DIR` set to an empty string (`""`).
@@ -29,10 +46,10 @@ Then, you need to install ffmpeg on your system. If it is not the case already y
 > `cd path/to/features-from-dlc/scripts/`
 
 And run the script :  
-> `python video-cutter.py path/to/your/videos`
+> `python video_cutter.py path/to/your/videos`
 
 The script is built as a command line interface (cli), for detailed usage, use :  
-`python video-cutter --help`
+`python video_cutter --help`
 
 The script processes all videos found in the input directory that have a txt/csv/bin file with the same name. The latter is read to determine the stimulation onsets. Extracted clips are created in {video-name}-cropped folder and are numbered from 0 to the number of stimulations found in the laser file.
 
@@ -53,7 +70,7 @@ It is intended to be modular : the main script (`features_from_dlc.py`) merely l
 Anyone can write its own configuration file to compute any required features (such as speed, body angle, jaw opening, you name it), as long as the original syntax is respected.
 
 #### Tip
-You don't have to read this document entirely to get started, you can jump to the [Install](#install), [Requirements](#requirements) or [Usage](#usage) sections.
+You don't have to read this document entirely to get started, you can jump to the [Getting started](#getting-started), [Requirements](#requirements) or [Usage](#usage) sections.
 
 In some extent, the script itself is self-documented, which means _a lot_ of information on how things work are written as comment (`#`) or docstrings (`"""`) within the script.
 
@@ -68,8 +85,8 @@ The use case is :
 The attempt to make this modular is the idea that the principle is always the same : load files, compute features, average across animals and conditions and plot the result. What actually differs from experiment to experiment and people to people is _how_ to compute the required features and the experimental conditions, such as the pixel size in the videos, the framerate and the timings of the stimulation. So all the later are defined in a separate configuration file that is experiment- and people-specific and plugged into the main script.
 
 ### How-to  
-#### Install
-Follow steps 1-5 in the [Using notebook](#using-notebooks) section. Then, the idea is to edit the script and configuration files before running it your data. In principle you can do that with any text editor, but it is recommended to use an IDE for ease of use. You can use any of your liking, below is explained how to use Visual Studio Code.
+#### Getting started
+Follow steps 1-5 in the [Quick start](#quick-start) section. Then, the idea is to edit the script and configuration files before running it your data. In principle you can do that with any text editor, but it is recommended to use an IDE for ease of use. You can use any of your liking, below is explained how to use Visual Studio Code.
 
 ##### Visual Studio Code
 It's easier to use as conda is nicely integrated and it is made easy to switch between environments.
@@ -113,7 +130,7 @@ Optionnaly, you can have a settings.toml file next to DLC files to analyze. It s
 5. Fill the `--- Call ---` section at the bottom of the main script. This is where the main function is called when executing the file with Python. This is where you specify the input directory that contains all the DLC files. Optionally, you can specify an output directory so that output files and figures are saved. The details of those files are given in the [Outputs](#outputs) section.
 
 #### The configuration file
-This file actually defines how are computed the requested features. It is a python file that needs to be located under configs/xxx.py subdirectory. In case you want to write your own, you should start from an existing, working one (such as bundled "openfield.py"). If you have no idea where to start, ask me (Guillaume, g.legoc@posteo.org).
+This file actually defines how are computed the requested features. It is a python file that needs to be located under `configs/xxx.py` subdirectory, relative to the `features_from_dlc.py` file. In case you want to write your own, you should start from an existing, working one (such as bundled "openfield.py"). If you have no idea where to start, ask me (Guillaume, g.legoc@posteo.org).
 
 Note that those files are very specific : they use DLC bodyparts directly so the latter need to exist in the tracking file (eg. bodyparts should be named _exactly_ the same and correspond to _exactly_  the same bodypart). All the variables in here are used in the main script, so they all need to be defined, while imports will depend on what is needed. If you don't want to actually use them, you need to find a trick so that the functionnality is disabled but the script is still working.
 
