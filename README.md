@@ -34,7 +34,7 @@ To use the notebooks, two options :
 - Use Jupyter directly in its web browser interface : from the terminal, activate the conda environment : `conda activate ffd`, then launch Jupyter : `jupyter lab /path/to/the/notebooks/notebook.ipynb`
 
 ##  Using the video_cutter script
-This script (`/scripts/video_cutter.py`) is used to cut long recording containing multiple stimulations into single-stimulation clip.
+This script (`/scripts/video_cutter.py`) is used to cut long recording containing multiple stimulations into single-stimulation clips.
 
 It uses the video file and a corresponding stimulation trace stored as a text or binary file.
 
