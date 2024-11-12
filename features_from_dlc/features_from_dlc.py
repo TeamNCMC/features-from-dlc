@@ -728,9 +728,11 @@ def get_delays(
         dfs = []  # initialize output
         for (name, dfpre), (_, dfpost) in zip(dfpre_group, dfin_group):
             prestd = dfpre[feature].std()  # get std
+            premean = dfpre[feature].mean()  # get mean
 
             # find first time it reaches nstd this value after stim onset
-            values_above = dfpost["time"][dfpost[feature] > nstd * prestd]
+            cond = np.abs(dfpost[feature] - premean) >= prestd * nstd
+            values_above = dfpost.loc[cond, "time"]
             if not values_above.empty:
                 onset = values_above.iloc[0]
             else:
