@@ -5,6 +5,8 @@
 # bar plots and the axes properties (width, arrows, etc.).
 #
 # Keep that one as a working template and copy it for specific plots.
+#
+# version : 2024.11.12
 
 [stim]  # stimulation patch
 color = [0.7961, 0.9451, 0.9961]  # color (RGB 0-1)
@@ -42,15 +44,29 @@ linewidth = 3  # thickness
 linewidth = 0
 alpha = 0.35
 
-[bars]  # quantifying metrics bars next to time series
+[metrics]  # quantifying metrics bars next to time series
+[metrics.bars]  # bars settings
 capsize = 0.1  # error bar cap size
 edgecolor = "k"  # edge color
 palette = "Set2"  # ordered list of colors for conditions
+[metrics.points]  # data points settings
+show_points = true  # add data points
+size = 4  # point size
+linewidth = 0.75  # line width (if 0 and same hue, might be invisible)
+edgecolor = "auto"
+palette = "Set2"  # ordered list of colors for conditions, should be the same as bars
 
 [delays]  # bar plots of delays
+[delays.bars]  # bars settings
 capsize = 0.1  # error bar cap size
 edgecolor = "k"  # edge color
 palette = "Set2"  # ordered list of colors for conditions
+[delays.points]  # data points settings
+show_points = true  # add data points
+size = 4
+linewidth = 0.75
+edgecolor = "auto"
+palette = "Set2"  # ordered list of colors for conditions, should be the same as bars
 
 [axes]  # axes spines
 figsize = [10, 8]  # figures size

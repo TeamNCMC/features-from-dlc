@@ -58,7 +58,7 @@ script.
 If you're lost, check out the README file, and/or drop me a line :)
 
 author : Guillaume Le Goc (g.legoc@posteo.org)
-version : 2024.09.26
+version : 2024.11.12
 
 """
 
@@ -192,7 +192,7 @@ def setup_plot_style(style_file: str = STYLE_FILE):
         "animal": config_animal,
         "condition": config["condition"],
         "trial": config["trial"],
-        "bars": config["bars"],
+        "metrics": config["metrics"],
         "delays": config["delays"],
         "figsize": config["axes"]["figsize"],
         "arrow": config["axes"]["arrow_tip"],
@@ -1152,8 +1152,24 @@ def nice_plot_metrics(
         estimator="mean",
         errorbar="se",
         ax=ax,
-        **kwargs_plot["bars"],
+        **kwargs_plot["metrics"]["bars"],
     )
+
+    # add data points
+    # we need to pop one of its item and will be reused
+    kws_pts = kwargs_plot["metrics"]["points"].copy()
+    show_points = kws_pts.pop("show_points")
+    if show_points:
+        ax = sns.stripplot(
+            df,
+            x=x,
+            y=y,
+            hue=x,
+            legend=False,
+            dodge=True,
+            ax=ax,
+            **kws_pts,
+        )
 
     # add significance
     if pvalue:
@@ -1229,8 +1245,22 @@ def nice_plot_delays(
         estimator="mean",
         errorbar="se",
         ax=ax,
-        **kwargs_plot["delays"],
+        **kwargs_plot["delays"]["bars"],
     )
+
+    # add data points
+    show_points = kwargs_plot["delays"]["points"].pop("show_points")
+    if show_points:
+        ax = sns.stripplot(
+            df_plot,
+            x=x,
+            y=y,
+            hue=hue,
+            legend=False,
+            dodge=True,
+            ax=ax,
+            **kwargs_plot["delays"]["points"],
+        )
 
     # add/remove axes labels
     ax.set_xlabel("")
