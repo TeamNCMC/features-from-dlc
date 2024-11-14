@@ -7,7 +7,7 @@ This particular version :
 modality : openfield
 features : speed, head angle, body angle, x, y
 author : Guillaume Le Goc (g.legoc@posteo.org), Rémi Proville (Acquineuro)
-version : 2024.09.19
+version : 2024.11.14
 
 """
 
@@ -31,7 +31,7 @@ FRAMERATE = 20  # framerate for the common time vector, used to align all time s
 
 # --- Features parameters
 # Make the stimulation onset be the time 0
-SHIFT_TIME = False
+SHIFT_TIME = True
 # List of all bodyparts used in the DLC file
 BODYPARTS = ["Left ear", "Right ear", "Tail", "Nose"]
 # Features to normalize by subtracting their pre-stim mean. This must be a tuple, so if
@@ -40,6 +40,8 @@ FEATURES_NORM = ("theta_body", "theta_neck")
 # Multiplier of standard deviation to define the initiation of reaction to determine the
 # delay from stimulation onset
 NSTD = 3
+# Number of points to fit after signal is above NSTD times the pre-stim std
+NPOINTS = 3
 
 # --- Data cleaning parameters
 # Likelihood threshold, below which values will be interpolated.
@@ -148,6 +150,7 @@ class Config:
         self.features_norm = FEATURES_NORM
         self.features_off = FEATURES_OFF
         self.nstd = NSTD
+        self.npoints = NPOINTS
 
         # Data cleaning parameters
         self.lh_thresh = LH_THRESH

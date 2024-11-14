@@ -20,7 +20,7 @@ __version__ = "2024.08.30"
 
 # --- Parameters
 TIME_BEFORE_ONSET = 0.5  # time before onset (seconds)
-TIME_AFTER_ONSET = 1.5  # time after onset (seconds)
+TIME_AFTER_ONSET = 3  # time after onset (seconds)
 
 LASER_MIN_VOLTAGE = 1.5  # min. voltage for the laser to be "on" (volt)
 CAMERA_MIN_VOLTAGE = 1.5  # min. voltage for the camera to be "on" (for bin files, volt)

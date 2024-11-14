@@ -58,7 +58,7 @@ script.
 If you're lost, check out the README file, and/or drop me a line :)
 
 author : Guillaume Le Goc (g.legoc@posteo.org)
-version : 2024.11.12
+version : 2024.11.14
 
 """
 
@@ -483,7 +483,7 @@ def process_animal(
 
         # check if we drop this trial because too much low-likelihood values
         if df_in.empty:
-            pbar.write(f"[Warning] {basename} dropped.")
+            pbar.write(f"[Info] {basename} dropped.")
             write_trial_file(basename, dropfile)
             continue
 
@@ -691,14 +691,28 @@ def get_quantif_metrics(
 
 
 def get_delays(
-    df: pd.DataFrame, features: list, stim_time: list | tuple, nstd: float = 3
+    df: pd.DataFrame,
+    features: list,
+    stim_time: list | tuple,
+    nstd: float = 3,
+    npoints: int = 3,
 ):
     """
     Find delay of response with respect to stimulation onset.
 
-    The motion onset is defined as the time point where the signal exceeds
-    `nstd` times the standard deviation during the pre-stimulation epoch (baseline).
-    A delay is computed for each trial of each animal.
+    To determine motion onset :
+    1. Find where the signal first deviates `nstd` times the pre-stim standard deviation
+    from the pre-stim mean, after the stim onset.
+    2. Take `npoints` from this point.
+    3. Fit with a linear function.
+    4. The delay is the intersection between the fit and the y = `nstd` * pre-stim std.
+
+    Cases where the delay is discarded :
+    - Delay before the stim. onset
+    - Fit with negative slope when the reference value is above
+        pre-stim mean + `nstd` * pre-stim std.
+    - Fit with positive slope when the reference value is below
+        pre-stim mean - `nstd` * pre-stim std.
 
     Parameters
     ----------
@@ -707,35 +721,79 @@ def get_delays(
         Keys in `df`, used to compute delays.
     stim_time : 2-elements list or tuple
         Stimulation onset and offset.
-    nstd : int, optionnal
+    nstd : float, optionnal
         Multiplier of standard deviation for threshold definition. Default is 3.
+    npoints : int, optional
+        Number of points to take for the fit. Default is 3.
 
     Returns
     -------
     df_delays : pandas.DataFrame
-        List of delays for each animals and each trials.
+        List of delays for each animals and each trials. NaN if no delay found.
 
     """
-    # pre-stim
-    dfpre_group = df[df["time"] < stim_time[0]].groupby(["condition", "trialID"])
-    # during-stim
-    dfin_group = df[
-        (df["time"] >= stim_time[0]) & (df["time"] <= stim_time[1])
-    ].groupby(["condition", "trialID"])
+    # group by trials and conditions
+    df_group = df.groupby(["condition", "trialID"])
 
     df_delays_feature = []
     for feature in features:
         dfs = []  # initialize output
-        for (name, dfpre), (_, dfpost) in zip(dfpre_group, dfin_group):
-            prestd = dfpre[feature].std()  # get std
-            premean = dfpre[feature].mean()  # get mean
+        for name, df_trial in df_group:
+            # get pre-stim and post-time boolean masks
+            pre_mask = df_trial["time"] < stim_time[0]
+            post_mask = df_trial["time"] >= stim_time[0]
 
-            # find first time it reaches nstd this value after stim onset
-            cond = np.abs(dfpost[feature] - premean) >= prestd * nstd
-            values_above = dfpost.loc[cond, "time"]
-            if not values_above.empty:
-                onset = values_above.iloc[0]
+            premean = df_trial.loc[pre_mask, feature].mean()  # get pre-stim mean
+            prestd = df_trial.loc[pre_mask, feature].std()  # get pre-stim std
+
+            # thresholds to define reaction
+            upper_threshold = premean + nstd * prestd
+            lower_threshold = premean - nstd * prestd
+
+            # find times it deviates nstd the pre-stim mean
+            cond = (df_trial[feature] >= upper_threshold) | (
+                df_trial[feature] <= lower_threshold
+            )
+            # select only post-stim values
+            cond *= post_mask
+
+            # get first values and following few points
+            if not cond.any():
+                # condition never reached
+                onset = np.nan
             else:
+                first_index = df_trial.loc[cond].index[0]
+                first_times_above = df_trial.loc[first_index:, "time"].to_numpy()
+                first_values_above = df_trial.loc[first_index:, feature].to_numpy()
+                # check we have enough values to proceed
+                if len(first_times_above) < npoints:
+                    onset = np.nan
+                else:
+                    first_times_above = first_times_above[:npoints]
+                    first_values_above = first_values_above[:npoints]
+                    p = np.polynomial.Polynomial.fit(
+                        first_times_above, first_values_above, 1
+                    )
+                    # get slope
+                    coef = p.convert().coef[1]
+                    # determine if we consider lower or upper threshold
+                    if first_values_above[0] >= upper_threshold:
+                        # slope should be positive
+                        if coef <= 0:
+                            onset = np.nan
+                        else:
+                            # get intersection between fit and threshold
+                            onset = (p - upper_threshold).roots()[0]
+                    elif first_values_above[0] <= lower_threshold:
+                        # slope should be negative
+                        if coef >= 0:
+                            onset = np.nan
+                        else:
+                            # get intersection between fit and threshold
+                            onset = (p - lower_threshold).roots()[0]
+
+            # check motion onset is after stim onset
+            if onset <= stim_time[0]:
                 onset = np.nan
 
             # collect results
@@ -744,11 +802,12 @@ def get_delays(
                     "condition": name[0],
                     "trialID": name[1],
                     "delay": onset - stim_time[0],
+                    "filename": df_trial["filename"].iloc[0],
                 }
             )
 
         df_delay = pd.DataFrame(dfs)  # convert to DataFrame
-        df_delay["feature"] = feature  # add related feature
+        df_delay["feature"] = feature  # add corresponding feature
         df_delays_feature.append(df_delay)
 
     df_delays = pd.concat(df_delays_feature).reset_index().drop(columns="index")
@@ -1500,7 +1559,9 @@ def process_directory(
     )
 
     # delays before motion onset for each feature
-    df_delays = get_delays(df_plot, cfg.features, cfg.stim_time, nstd=cfg.nstd)
+    df_delays = get_delays(
+        df_plot, cfg.features, cfg.stim_time, nstd=cfg.nstd, npoints=cfg.npoints
+    )
     df_delays["delay"] = df_delays["delay"] * 1000  # convert to ms
 
     # --- Plot results
