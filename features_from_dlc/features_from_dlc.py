@@ -58,7 +58,7 @@ script.
 If you're lost, check out the README file, and/or drop me a line :)
 
 author : Guillaume Le Goc (g.legoc@posteo.org)
-version : 2024.11.14
+version : 2024.11.18
 
 """
 
@@ -113,6 +113,7 @@ PLOT_CONDITION = True  # whether to plot mean and sem per condition, bool
 PLOT_ANIMAL = False  # whether to plot mean and sem per animal, bool
 PLOT_ANIMAL_MONOCHROME = True  # whether to plot mean per animal in the same color, bool
 PLOT_CONDITION_OFF = None  # conditions NOT to be plotted, list or None
+PLOT_DELAY_LIST = ["condition2", "condition3"]  # delays will be plotted only for those
 
 # ---------------------------------- END USER DEFINED ----------------------------------
 HEADER = [1, 2]  # to read CSV correctly
@@ -708,7 +709,7 @@ def get_delays(
     4. The delay is the intersection between the fit and the y = `nstd` * pre-stim std.
 
     Cases where the delay is discarded :
-    - Delay before the stim. onset
+    - Condition never reached.
     - Fit with negative slope when the reference value is above
         pre-stim mean + `nstd` * pre-stim std.
     - Fit with positive slope when the reference value is below
@@ -757,20 +758,44 @@ def get_delays(
             # select only post-stim values
             cond *= post_mask
 
-            # get first values and following few points
             if not cond.any():
                 # condition never reached
                 onset = np.nan
             else:
-                first_index = df_trial.loc[cond].index[0]
-                first_times_above = df_trial.loc[first_index:, "time"].to_numpy()
-                first_values_above = df_trial.loc[first_index:, feature].to_numpy()
-                # check we have enough values to proceed
-                if len(first_times_above) < npoints:
+                # check the value right before and after the stim onset
+                last_value = df_trial.loc[pre_mask, feature].iloc[-1]
+                first_value = df_trial.loc[post_mask, feature].iloc[0]
+
+                # check if the signal was already above threshold before the stim onset
+                if (
+                    (last_value < lower_threshold) & (first_value < lower_threshold)
+                ) | ((last_value > upper_threshold) & (first_value > upper_threshold)):
+                    # re-center the thresholds
+                    upper_threshold = last_value + nstd * prestd
+                    lower_threshold = last_value - nstd * prestd
+
+                    # update thresholding mask
+                    cond = (df_trial[feature] > upper_threshold) | (
+                        df_trial[feature] < lower_threshold
+                    )
+                    # select only post-stim values
+                    cond *= post_mask
+
+                # find first npoints consecutive values where condition is met
+                consecutive_mask = cond.rolling(window=npoints).sum() == 3
+                if not consecutive_mask.any():
+                    # not enough values to proceed
                     onset = np.nan
                 else:
-                    first_times_above = first_times_above[:npoints]
-                    first_values_above = first_values_above[:npoints]
+                    first_index = consecutive_mask.idxmax() - 2
+                    first_times_above = df_trial.loc[first_index:, "time"].to_numpy()[
+                        :npoints
+                    ]
+                    first_values_above = df_trial.loc[first_index:, feature].to_numpy()[
+                        :npoints
+                    ]
+
+                    # fit
                     p = np.polynomial.Polynomial.fit(
                         first_times_above, first_values_above, 1
                     )
@@ -794,7 +819,8 @@ def get_delays(
 
             # check motion onset is after stim onset
             if onset <= stim_time[0]:
-                onset = np.nan
+                # use 3 std directly instead
+                onset = first_times_above[0]
 
             # collect results
             dfs.append(
@@ -813,6 +839,22 @@ def get_delays(
     df_delays = pd.concat(df_delays_feature).reset_index().drop(columns="index")
 
     return df_delays
+
+
+def get_responsiveness_from_delays(df_delays: pd.DataFrame) -> pd.DataFrame:
+    """
+    Get
+
+    Parameters
+    ----------
+    df_delays : pd.DataFrame
+        Delays as created by `get_delays()`.
+
+    Returns
+    -------
+
+
+    """
 
 
 def pvalue_to_stars(pvalue):
@@ -1650,8 +1692,9 @@ def process_directory(
     # - Delays
     print("Plotting delays...", end="", flush=True)
     figd, axd = plt.subplots(figsize=kwargs_plot["figsize"])
+    df_delays_plt = df_delays[df_delays["condition"].str.isin(PLOT_DELAY_LIST)]
     nice_plot_delays(
-        df_delays,
+        df_delays_plt,
         x="feature",
         y="delay",
         hue="condition",
