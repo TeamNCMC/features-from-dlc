@@ -58,7 +58,7 @@ script.
 If you're lost, check out the README file, and/or drop me a line :)
 
 author : Guillaume Le Goc (g.legoc@posteo.org)
-version : 2024.11.18
+version : 2024.11.19
 
 """
 
@@ -1581,7 +1581,8 @@ def process_directory(
         df_align_list.append(
             process_animal(files_list, animal, cfg, dropfile=dropfile, usefile=usefile)
         )
-    df_align = pd.concat(df_align_list)  # concatenate in a single DataFrame
+    # concatenate in a single DataFrame
+    df_align = pd.concat(df_align_list).reset_index(drop=True)
 
     if PLOT_CONDITION_OFF:
         # remove conditions that will not be plotted
@@ -1692,7 +1693,7 @@ def process_directory(
     # - Delays
     print("Plotting delays...", end="", flush=True)
     figd, axd = plt.subplots(figsize=kwargs_plot["figsize"])
-    df_delays_plt = df_delays[df_delays["condition"].str.isin(PLOT_DELAY_LIST)]
+    df_delays_plt = df_delays[df_delays["condition"].isin(PLOT_DELAY_LIST)]
     nice_plot_delays(
         df_delays_plt,
         x="feature",
