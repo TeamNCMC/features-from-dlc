@@ -69,7 +69,7 @@ The script processes all videos found in the input directory that have a txt/csv
 
 ## The `features_from_dlc` script
 
-Current version : 2024.09.26
+Current version : 2024.11.19
 
 ### Introduction
 This script is meant to be used to compute and display features from DeepLabCut (DLC) tracking files.
