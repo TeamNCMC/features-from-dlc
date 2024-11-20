@@ -697,6 +697,7 @@ def get_delays(
     stim_time: list | tuple,
     nstd: float = 3,
     npoints: int = 3,
+    maxdelay: float = 0.5,
 ):
     """
     Find delay of response with respect to stimulation onset.
@@ -726,6 +727,9 @@ def get_delays(
         Multiplier of standard deviation for threshold definition. Default is 3.
     npoints : int, optional
         Number of points to take for the fit. Default is 3.
+    maxdelay : float, optional
+        Maximum allowed delay, above which it is discarded, in the same units as time.
+        Default is 0.5.
 
     Returns
     -------
@@ -822,12 +826,19 @@ def get_delays(
                 # use 3 std directly instead
                 onset = first_times_above[0]
 
+            # get final delay
+            delay = onset - stim_time[0]
+
+            # check it does not exceed imposed value
+            if delay > maxdelay:
+                delay = np.nan
+
             # collect results
             dfs.append(
                 {
                     "condition": name[0],
                     "trialID": name[1],
-                    "delay": onset - stim_time[0],
+                    "delay": delay,
                     "filename": df_trial["filename"].iloc[0],
                 }
             )
@@ -1603,7 +1614,12 @@ def process_directory(
 
     # delays before motion onset for each feature
     df_delays = get_delays(
-        df_plot, cfg.features, cfg.stim_time, nstd=cfg.nstd, npoints=cfg.npoints
+        df_plot,
+        cfg.features,
+        cfg.stim_time,
+        nstd=cfg.nstd,
+        npoints=cfg.npoints,
+        maxdelay=cfg.maxdelay,
     )
     df_delays["delay"] = df_delays["delay"] * 1000  # convert to ms
 

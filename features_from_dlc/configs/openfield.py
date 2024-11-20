@@ -3,11 +3,15 @@ This file is meant to be copied and edited to suit your needs. There are several
 restrictions to its content, notably the Config class -- see corresponding docstrings.
 Give it a sensible name, describing to which modality it corresponds (openfield, ...).
 
+All global variables (in CAPSLOCK before the Class definition) should exist.
+Remember to edit the `features_metrics_range` variable in the `get_features()` function
+to adjust when the in-stim quantifying metric should be computed.
+
 This particular version :
 modality : openfield
 features : speed, head angle, body angle, x, y
 author : Guillaume Le Goc (g.legoc@posteo.org), Rémi Proville (Acquineuro)
-version : 2024.11.14
+version : 2024.11.20
 
 """
 
@@ -42,6 +46,8 @@ FEATURES_NORM = ("theta_body", "theta_neck")
 NSTD = 3
 # Number of points to fit after signal is above NSTD times the pre-stim std
 NPOINTS = 3
+# Maximum allowed delay, above which it is not considered as a response
+MAXDELAY = 0.5  # in seconds
 
 # --- Data cleaning parameters
 # Likelihood threshold, below which values will be interpolated.
@@ -149,8 +155,11 @@ class Config:
         self.bodyparts = BODYPARTS
         self.features_norm = FEATURES_NORM
         self.features_off = FEATURES_OFF
+
+        # Delay parameters
         self.nstd = NSTD
         self.npoints = NPOINTS
+        self.maxdelay = MAXDELAY
 
         # Data cleaning parameters
         self.lh_thresh = LH_THRESH
