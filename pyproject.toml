@@ -1,0 +1,43 @@
+[project]
+name = "features-from-dlc"
+version = "2024.11.20"
+authors = [{ name = "Guillaume Le Goc", email = "g.legoc@posteo.org" }]
+description = "Behavioral quantification from DeepLabCut tracking"
+readme = "README.md"
+requires-python = ">=3.12"
+
+license = { text = "GPLv3" }
+
+classifiers = ["Programming Language :: Python :: 3.12"]
+
+dependencies = [
+  "h5py>=3.11",
+  "ipython",
+  "ipykernel",
+  "ipympl",
+  "ipywidgets",
+  "natsort",
+  "matplotlib>=3.9.0",
+  "notebook",
+  "numpy>=2.1",
+  "pandas[performance]>2.2.2",
+  "seaborn>=0.13.2",
+  "shapely>=2.0.4",
+  "tables>=3.10.1",
+  "tqdm",
+  "typer",
+]
+
+[project.urls]
+"Source Code" = "https://github.com/TeamNCMC/features-from-dlc"
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.ruff]
+line-length = 88
+extend-include = ["*.ipynb"]
+
+[tool.setuptools.packages.find]
+include = ["features_from_dlc"]
