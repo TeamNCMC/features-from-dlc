@@ -36,8 +36,8 @@ For more detailed instructions on how to install `conda`, see [this page](https:
 You should be ready to use the scripts and notebooks !
 
 To use the scripts, have a look at the instructions :
-- [`video_cutter.py`](#using-the-video_cutter-script)
-- [`features_from_dlc.py`](#the-features_from_dlc-script)
+- [`video_cutter`](#using-the-video_cutter-script)
+- [`features_from_dlc`](#the-features_from_dlc-package)
 
 To use the notebooks, two options :
 - Use an IDE with Jupyter notebooks support such as [Visual Studio Code](https://code.visualstudio.com/download). Install the Python and Jupyter extensions (the squared pieces on the left panel). Open the notebook with vscode, on the top right you should be able to select a kernel : choose "ffd".
