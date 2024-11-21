@@ -15,5 +15,5 @@ pixel_size = 0.3497757518083765  # pixel size in mm
 
 # Below, you can override the pixel size for each animals. If missing, the default
 # value will be used. Timings settings can't be defined per-animal.
-[GN88]
+[animal0]
 pixel_size = 0.294875416  # pixel size in mm
