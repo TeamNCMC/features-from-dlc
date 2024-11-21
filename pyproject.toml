@@ -21,6 +21,7 @@ dependencies = [
   "notebook",
   "numpy>=2.1",
   "pandas>=2.2.3",
+  "scipy",
   "seaborn>=0.13.2",
   "shapely>=2.0.4",
   "tables>=3.10.1",

@@ -1,6 +1,11 @@
 """
 Script to quantify behavior from DeepLabCut tracking using the features_from_dlc package.
 
+Specify each entry, reading carefully what they do, then run the script with the 'ffd'
+conda environment activated.
+
+Works with features_from_dlc v2024.11.21
+
 """
 
 import os
@@ -17,15 +22,6 @@ modality = "openfield"  # name of the configuration file (without .py)
 # Only files beginning by those will be processed. If only one, write as ("xxx",)
 animals = ("animal0", "animal1")
 
-# - Outputs
-# Directory where figures and mean time series will be saved
-# do not save anything :
-# outdir = None
-# create a "results" subdirectory :
-outdir = os.path.join(directory, f"results_{"-".join([animal for animal in animals])}")
-# choose directly where to save results :
-# outdir = /path/to/custom/directory
-
 # - Groups
 # This must be a dictionnary {key: values}.
 # "key" is the name of the condition that will appear in the graphs -- they must be a
@@ -39,6 +35,15 @@ conditions = {
     "condition2": ["identifier"],
     "condition3": ["something_else"],
 }
+
+# - Outputs
+# Directory where figures and mean time series will be saved
+# do not save anything :
+# outdir = None
+# create a "results" subdirectory :
+outdir = os.path.join(directory, f"results_{"-".join([animal for animal in animals])}")
+# choose directly where to save results :
+# outdir = /path/to/custom/directory
 
 # - Options
 # Full path to the config_plot.toml file

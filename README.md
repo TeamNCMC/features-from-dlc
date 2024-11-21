@@ -126,6 +126,7 @@ You also need a configuration file. It defines the features one wants to extract
 Optionnaly, you can have a settings.toml file next to DLC files to analyze. It specifies the experimental settings (timings and pixel size). If the file does not exist, default values from the configuration file will be used instead. See [The settings.toml file](#the-settingstoml-file).
 
 #### Usage
+1. Copy-paste the `scripts/ffd_quantify.py` file elsewhere on your computer, open it with an editor.
 1. Fill the `--- Parameters ---` section. This includes :
    - `directory` : the full path to the directory containing the *files to be analyzed*.
    - `configs_path` : the full path to the directory containing the *configuration files* (eg. `modality.py` and `config_plot.toml`).
