@@ -1,15 +1,17 @@
 # Analyse DeepLabCut outputs
-This repository contains a main script called `features_from_dlc` that is used to compute and plot behavioral metrics from DeepLabCut tracking files.
+This repository contains a package called `features_from_dlc` that is used to compute and plot behavioral metrics from DeepLabCut tracking files.
 
 You'll also find some utility scripts in the scripts folder, as well as separate notebooks (.ipynb files) in the notebooks directory.
 
 Jump to :
-- [Install requirements](#quick-start)
+- [Install instruction](#quick-start)
 - [The `video_cutter` script](#using-the-video_cutter-script)
-- [The `features_from_dlc` script](#the-features_from_dlc-script)
+- [The `features_from_dlc` package](#the-features_from_dlc-package)
 
 ##  Quick start
-To use the scripts and notebooks, you first need to install some things. If conda is already installed, ignore steps 1-2. Those steps need to be done only once.
+To use the scripts and notebooks, you first need to install some things. If conda is already installed, ignore steps 1-2.
+
+For more detailed instructions on how to install `conda`, see [this page](https://teamncmc.github.io/histoquant/main-getting-started.html#python-virtual-environment-manager-conda).
 
 1. Install [miniconda3](https://docs.anaconda.com/miniconda/#id2) as user, add conda to PATH and make it the default interpreter.
 2. Open a terminal (PowerShell in Windows) and run `conda init`. Restart the terminal.
@@ -18,14 +20,22 @@ To use the scripts and notebooks, you first need to install some things. If cond
   ```bash
   cd /path/to/the/smart/location/features-from-dlc
   ```
-5. Create a virtual environment named "ffd" with the required packages, using the provided `environment.yml file` : 
+5. Create a virtual environment named "ffd" :
   ```bash
-  conda env create -f environment.yml
+  conda create -c conda-forge -n ffd
+  ```
+6. Activate the environment :
+  ```bash
+  conda activate ffd
+  ```
+7. Install the package and its dependencies :
+  ```bash
+  pip install .
   ```
 
 You should be ready to use the scripts and notebooks !
 
-To use the script, have a look at the instructions :
+To use the scripts, have a look at the instructions :
 - [`video_cutter.py`](#using-the-video_cutter-script)
 - [`features_from_dlc.py`](#the-features_from_dlc-script)
 
@@ -49,7 +59,7 @@ conda activate ffd
 cd path/to/features-from-dlc/scripts/
 ```
 
-And run the script :  
+And run the script on your videos :  
 ```bash
 python video_cutter.py path/to/your/videos
 ```
@@ -67,20 +77,19 @@ The script processes all videos found in the input directory that have a txt/csv
 - Parameters (time before and after stimulation onset, ...) are set as variables directly in the script, but you can override them by passing options to the script from the command line, like so :  
 `python video-cutter.py path/to/videos --sep \t`
 
-## The `features_from_dlc` script
-
-Current version : 2024.11.19
+## The `features_from_dlc` package
 
 ### Introduction
-This script is meant to be used to compute and display features from DeepLabCut (DLC) tracking files.
+This package is meant to be used to compute and display features from DeepLabCut (DLC) tracking files.
+
 It will process a bunch of h5 or csv files created by DLC, computing so called "features" that are arbitrarily defined by the user and displaying them in nice graphs : time series with averages and errors, corresponding bar plots that quantifies a change during a specified epoch (typically, an optogenetic stimulation).  
-It is intended to be modular : the main script (`features_from_dlc.py`) merely loads DLC files, computes features, averages them per condition and plots them. So-called configuration files are plugged into it and specifies _how_ the features are computed from the bodyparts tracked in DLC.  
+It is intended to be modular : the main module (`features_from_dlc.py`) merely loads DLC files, computes features, averages them per condition and plots them. So-called configuration files are plugged into it and specifies _how_ the features are computed from the bodyparts tracked in DLC.  
 Anyone can write its own configuration file to compute any required features (such as speed, body angle, jaw opening, you name it), as long as the original syntax is respected.
 
 #### Tip
 You don't have to read this document entirely to get started, you can jump to the [Getting started](#getting-started), [Requirements](#requirements) or [Usage](#usage) sections.
 
-In some extent, the script itself is self-documented, which means _a lot_ of information on how things work are written as comment (`#`) or docstrings (`"""`) within the script.
+In some extent, the script itself is self-documented, which means _a lot_ of information on how things work are written as comment (`#`) or docstrings (`"""`) within the files.
 
 #### Use case
 The use case is :
@@ -94,13 +103,15 @@ The attempt to make this modular is the idea that the principle is always the sa
 
 ### How-to  
 #### Getting started
-Follow steps 1-5 in the [Quick start](#quick-start) section. Then, the idea is to edit the script and configuration files before running it your data. In principle you can do that with any text editor, but it is recommended to use an IDE for ease of use. You can use any of your liking, below is explained how to use Visual Studio Code.
+Follow the instructions in the [Quick start](#quick-start) section. Then, the idea is to edit the example script and configuration files before running it your data. In principle you can do that with any text editor, but it is recommended to use an IDE for ease of use. You can use any of your liking, below is explained how to use Visual Studio Code.
+
+Note that after installation, the `features_from_dlc` package is installed inside the conda environment. The `features_from_dlc` folder is not used anymore, rather, we will use a script to import the package and use it on the data. The `ffd_quantify.py` script located in `scripts/` is a template you can copy and modify as needed.
 
 ##### Visual Studio Code
 It's easier to use as conda is nicely integrated and it is made easy to switch between environments.
 1. Install [vscode](https://code.visualstudio.com/download) (it does not require admin rights).
 2. Install Python extension (squared pieces in the left panel).
-3. Open the features_from_dlc.py script. In the bottom right corner, you should see a "conda" entry : click on it and select the ffd conda environment. To run the script, click on the Play item on the top right.
+3. Open the `scripts/ffd_quantify.py` script. In the bottom right corner, you should see a "conda" entry : click on it and select the ffd conda environment. To run the script, click on the Play item on the top right.
 
 #### Requirements
 You need to have tracked your video clips with DeepLabCut and saved the output files (either .h5 or .csv files). One file corresponds to one and only one trial, so you might need to split your original videos into several short clips around the stimulation onsets and offsets beforehand. This can be done with the script provided in the scripts folder. All files analyzed together must :
@@ -115,71 +126,78 @@ You also need a configuration file. It defines the features one wants to extract
 Optionnaly, you can have a settings.toml file next to DLC files to analyze. It specifies the experimental settings (timings and pixel size). If the file does not exist, default values from the configuration file will be used instead. See [The settings.toml file](#the-settingstoml-file).
 
 #### Usage
-1. Read the docstring at the top of the script.
-2. Fill the `--- Parameters ---` section. This includes :
-   - `MODALITY` : a string (`"abc"`). It corresponds to a configuration file. It will look for a python file named `abc.py` in the configs directory.
-   - `ANIMALS` : a tuple (`(a, b, c)`, or `(a, )` for single element). Only files beginning by those will be processed.
-   - `CONDITIONS` : a dictionary (`{key1: values1, key2: values2}`). This maps a condition name ("key1", "key2" will appear on the graphs) to a _filter_. This filter is used to assign a file to a condition based on its file name. The beginning of the file name has priority, if it begins by something in the values, it is assigned to the corresponding condition, whether there is another match somewhere else in the file name.  
+1. Fill the `--- Parameters ---` section. This includes :
+   - `directory` : the full path to the directory containing the *files to be analyzed*.
+   - `configs_path` : the full path to the directory containing the *configuration files* (eg. `modality.py` and `config_plot.toml`).
+   - `modality` : It corresponds to a configuration file. It will look for a python file with this name in the `configs_path` directory.
+   - `animals` : a tuple (`(a, b, c)`, or `(a, )` for single element). Only files beginning by those will be processed (case-sensitive).
+   - `conditions` : a dictionary (`{key1: values1, key2: values2}`). This maps a condition name ("key1", "key2" will appear on the graphs) to a _filter_. This filter is used to assign a file to a condition based on its file name. The beginning of the file name has priority, if it begins by something in the values, it is assigned to the corresponding condition, whether there is another match somewhere else in the file name.  
    Examples :  
        `conditions = {"control": ["animal70"], "low": ["10mW"], "high": ["20mW"]}`  
        filename -> condition :  
        animal70_10mW_blabla.h5 -> "control"  
        animal70_20mW_blabla.h5 -> "control"  
        animal71_10mW_blabla.h5 -> "low"  
-       animal81_20mW_blabla.h5 -> "high"  
-3. Fill the `- Options` section. Those are the display options, eg. what to plot and how :
-   - `PLOT_POOLED`: `None` or a list of conditions (`["a"]` or `["a", "b"]`). Conditions whose trials are pooled to plot a pooled mean and sem. Useful when conditions are "Control" and "Injected" for example. If `None`, this is not plotted.
-   - `PLOT_TRIALS`: `True` or `False`. Whether to plot individual trials. When there are a lot, it's a good idea not to show them to not clutter the graphs.
-   - `PLOT_CONDITION`: `True` or `False`. Whether to plot mean and sem per condition.
-   - `PLOT_ANIMALS`: `True` or `False`. Whether to plot mean and sem per animal.
-   - `PLOT_ANIMALS_MONOCHROME`: `True` or `False`. Whether to plot each animals in the same color.
-   - `PLOT_CONDITION_OFF`: `None` or a list. List of conditions NOT to be plotted. Does not apply for the raster plots nor the bar plots next to the time series.
-4. Check the configs/xxx.py, where "xxx" corresponds to `MODALITY` specified in the main script. In particular, check that `PIXEL_SIZE`, `STIM_TIME` and `CLIP_DURATION` correspond to your experimental conditions if a settings.toml file is not provided. Also check that `BODYPARTS` contains all the bodyparts used to compute features. Check that the thresholds defined in the `--- Data cleaning parameters` section make sense.
-5. Fill the `--- Call ---` section at the bottom of the main script. This is where the main function is called when executing the file with Python. This is where you specify the input directory that contains all the DLC files. Optionally, you can specify an output directory so that output files and figures are saved. The details of those files are given in the [Outputs](#outputs) section.
+       animal81_20mW_blabla.h5 -> "high"
+1. Fill the `- Outputs` section. Basically specify the directory where to put the results (summary and figures) by setting the `outdir` variable.
+1. Fill the `- Options` section. Those are the display options, eg. what to plot and how. The `plot_options` should be a dictionnary with the following keys :
+   - `plot_pooled`: `None` or a list of conditions (`["a"]` or `["a", "b"]`). Conditions whose trials are pooled to plot a pooled mean and sem. Useful when conditions are "Control" and "Injected" for example. If `None`, this is not plotted.
+   - `plot_trials`: `True` or `False`. Whether to plot individual trials. When there are a lot, it's a good idea not to show them to not clutter the graphs.
+   - `plot_condition`: `True` or `False`. Whether to plot mean and sem per condition.
+   - `plot_animals`: `True` or `False`. Whether to plot mean and sem per animal.
+   - `plot_animals_monochrome`: `True` or `False`. Whether to plot each animals in the same color.
+   - `plot_condition_off`: `None` or a list. List of conditions NOT to be plotted. Does not apply for the raster plots nor the bar plots next to the time series.
+   - `plot_delay_list`: List of conditions whose delay will be displayed in the figure.
+   - `style_file`: full path to the plot configuration file that specifies the graphs colors, linewidths...
+1. Check the configs/xxx.py file, where "xxx" corresponds to `modality` specified in the script. In particular, check that `PIXEL_SIZE`, `STIM_TIME` and `CLIP_DURATION` correspond to your experimental conditions if a settings.toml file is not provided with the DLC files to be analyzed. Also check that `BODYPARTS` contains all the bodyparts used to compute features. Check that the thresholds defined in the `--- Data cleaning parameters` section make sense.
+1. Run the script ! Make sure you activated the `ffd` conda environment.
 
 #### The configuration file
-This file actually defines how are computed the requested features. It is a python file that needs to be located under `configs/xxx.py` subdirectory, relative to the `features_from_dlc.py` file. In case you want to write your own, you should start from an existing, working one (such as bundled "openfield.py"). If you have no idea where to start, ask me (Guillaume, g.legoc@posteo.org).
+This file actually defines how are computed the requested features. An example for openfield experiments is provided in the `configs` folder. In case you want to write your own, you should start from there. If you have no idea where to start, ask me (Guillaume, [g.legoc@posteo.org](mailto:g.legoc@posteo.org)).
 
-Note that those files are very specific : they use DLC bodyparts directly so the latter need to exist in the tracking file (eg. bodyparts should be named _exactly_ the same and correspond to _exactly_  the same bodypart). All the variables in here are used in the main script, so they all need to be defined, while imports will depend on what is needed. If you don't want to actually use them, you need to find a trick so that the functionnality is disabled but the script is still working.
+Note that those files are *very* specific : they use DLC bodyparts directly so the latter need to exist in the tracking file (eg. bodyparts should be named _exactly_ the same and correspond to _exactly_  the same bodypart). All the variables in here are used in the main script, so they all need to be defined, while imports will depend on what is needed. If you don't want to actually use them, you need to find a trick so that the functionnality is disabled but the script is still working.
 
 This file consists in some variables defined at the top of the file, and a Python Class defining a "Config" object. This object has some required attributes and methods. Below is the extensive description of all variables.
 
 ##### Global variables
 ###### Physical parameters
 This is where we convert images to real-world units. Those values are used only if they are missing from the settings.toml file placed next to the DLC files to analyze or if it does not exist.
-- `PIXEL_SIZE`: scalar. Conversion factor from image coordinates to real-world length, expressed in unit of length (eg. mm). To measure that, you can open a video in Fiji (File > Import > Movie (FFMPEG)). Then with the Line tool, measure in pixels the length of known object. Then, `PIXEL_SIZE` will be $length_{mm}/length_{pixels}$, optionally averaging two conversion in the horizontal and vertical directions.
-- `CLIP_DURATION`: scalar. Duration of the video clips, in units of time (eg. seconds). Each DLC file contains $n_ {frames}$ lines, so we use that to convert frames to real-world time.
+- `PIXEL_SIZE`: Conversion factor from image coordinates to real-world length, expressed in unit of length (eg. mm). To measure that, you can open a video in Fiji (File > Import > Movie (FFMPEG)). Then with the Line tool, measure in pixels the length of known object. Then, `PIXEL_SIZE` will be $length_{mm}/length_{pixels}$, optionally averaging two conversion in the horizontal and vertical directions.
+- `CLIP_DURATION`: Duration of the video clips, in units of time (eg. seconds). Each DLC file contains $n_{frames}$ lines, so we use that to convert frames to real-world time.
 - `STIM_TIME`: tuple with 2 elements. The onset and offset of the stimulation in the video clip, in the same units as `CLIP_DURATION`.
-- `FRAMERATE`: scalar. This is **not** the actual framerate of the videos. It is used to create a generic time vector on which the time series are aligned, so that we can properly average each trace at the same time points. It should correspond to the lowest framerate you have in your videos.
+- `FRAMERATE`: This is **not** the actual framerate of the videos. It is used to create a generic time vector on which the time series are aligned, so that we can properly average each trace at the same time points. It should correspond to the lowest framerate you have in your videos.
 
 ###### Features
 This is where we define what it is actually computed.
-- `SHIFT_TIME`: bool. Display only. This is to shift all times so that the stim onset is at time 0 in the graphs.
-- `BODYPARTS`: list of strings. Bodyparts of the DLC files that are actually used in the analysis. Anything that is not in there will be discarded, so it needs to contain all bodyparts used to compute features.
+- `SHIFT_TIME`: This is to shift all times so that the stim onset is at time 0.
+- `BODYPARTS`: Bodyparts of the DLC files that are actually used in the analysis. Anything that is not in there will be discarded, so it needs to contain all bodyparts used to compute features.
 - `FEATURES_NORM`: tuple of 'features'. Elements in here will be normalized by subtracting their pre-stimulation mean.
-- `NSTD`: scalar. The main script attempts to estimate the delay between the stimulation onset and the actual change in behaviour. This parameter controls how is defined the "change in behaviour". It is defined as when the value becomes higher than NSTD times the standard deviation of the signal before the stimulation onset.
+- `NSTD`: To estimate the delay between the stimulation onset and the actual change in behaviour. This parameter controls how is defined the "change in behaviour". It is defined as when the value becomes higher than NSTD times the standard deviation of the signal before the stimulation onset.
+- `NPOINTS`: Number of points above the aforementioned threshold used to make a linear fit. The delay will be the crossing of this fit with the y=threshold line.
+- `MAXDELAY`: Maximum allowed delay, above which it will not be considered as a response.
 
 ###### Data cleaning
 This is where we handle tracking errors. DLC files come with a 'likelihood' for each bodypart in each frame, ranging from 0 to 1. The latter means the model is 100% sure the bodypart was correctly assigned, the former means the opposite. If we keep low-likelihood values, we'll end up with artifacts in the computed features, so we need to get rid of them. If there are not too much, missing data can be interpolated to reconstruct a legit time serie, in some extent. Otherwise, the trial need to be discarded.
-- `LH_THRESH`: scalar between 0 and 1. Likelihood below this will be considered as missing data.
-- `LH_PERCENT`: scalar between 0 and 1. If a trace has more than this fraction of missing data, the whole trial is dropped and not used in the analysis.
-- `LH_CONSECUTIVE`: integer. If a trace has more than this amount of consecutive frames with missing data, the whole trial is dropped and not used in the analysis.
-- `INTERP_METHOD`: string, corresponding to the `method` parameter of [`pandas.DataFrame.interpolate`](https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.interpolate.html#pandas.DataFrame.interpolate). Typically "linear" or "cubic", defines the order of the interpolation method.
+- `LH_THRESH`: Likelihood below this will be considered as missing data.
+- `LH_PERCENT`: If a trace has more than this fraction of missing data, the whole trial is dropped and not used in the analysis.
+- `LH_CONSECUTIVE`: If a trace has more than this amount of consecutive frames with missing data, the whole trial is dropped and not used in the analysis.
+- `INTERP_METHOD`: Corresponds to the `method` parameter of [`pandas.DataFrame.interpolate`](https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.interpolate.html#pandas.DataFrame.interpolate). Typically "linear" or "cubic", defines the order of the interpolation method.
 
 ###### Display
 Those are graphs options, such as human-readable labels and so on.
 - `XLIM`: 2-elements list or None or empty list. Controls the x limits on the time series plot.
-- `XLABEL_LINE`: string. x axis label for time series plots.
+- `XLABEL_LINE`: x axis label for time series plots.
 - `FEATURES_LABELS`: dict mapping a 'feature' to a name shown in the graphs.
 - `FEATURES_YLIM`: dict mapping a 'feature' to a y-axis range. The latter should be a 2-element list `[ymin, ymax]`. To make the graphs auto-adjust their axes, use an empty dictionary `{}`.
+- `FEATURES_OFF` : list of features that will not be plotted.
 
 ##### The Config class
 This is the object that will be instantiated in the main script. It reads the global variables defined above to make them available in the script, but especially defines the actual features and metrics computation. Some of its methods (function attached to the object) must exist. Below is the description of each components of that class.
 The required methods are :
 - \_\_init()\_\_
 - read_setting()
-- get_pixel_size()
 - setup_time()
+- get_pixel_size()
 - get_features()
 - write_parameters_file()
 - preprocess_df()
@@ -244,26 +262,6 @@ Along with the figures, you'll find two log files : `dropped.txt` and `used.txt`
 A summary CSV is saved. It contains each features' time series for each trials, giving the trial number, the trial ID, the condition, the filename and the animal.
 
 Last, a parameters file tracks the parameters used for this analysis.
-
-## Vocabulary
-- [python](https://www.python.org/) is a popular programming language that is free and open-source. It can run on mostly any hardware with any operating-system. Its capability on its own are limited, but there are hundreds of community-driven libraries that extend its functionality and make it easy to handle data and visualization. It makes it harder to get started because you need to install those libraries, unlike MATLAB that is a all-in-one solution.
-- markdown (.md, such as this file) is a specific formatting syntax that makes text file nice to write and read. It can be opened with any text editor (such as notepad) but you can see it rendered with Visual Studio Code (top right magnyfing glass).
-- toml (.toml) is a specific formatting syntax that makes text files human- and computer- readable which is useful for configuration files (such as config_plot.toml and settings.toml).
-
-Python-specific vocabulary :
-- library : bunch of modules and functions you call in your script. There are libraries bundled with bare python (standard library), and others you need to install
-- environment : because of those libraries, it can quickly becomes a mess. Some libraries depend on others, and all have different versions that in turn require specific version. So installing all libraries in one place will probably lead to dependency issues (libA 1.2.1 requires libB 1.3 which requires libC 2.5.7, but libD 3.5.4 requires libB 1.2.1). So what we do is use "environment", where all required libraries in their specific version are installed in a dedicated space and independent on other environments. They are handled by an package and environment such as conda.
-- [conda](https://docs.anaconda.com/free/miniconda/index.html) is a widely used environment and package manager. It is bundled with Anaconda.
-- [Anaconda](https://www.anaconda.com/download/) is an attempt to make it easy to use python (an all-in-one solution like MATLAB). But in my opinion it's quite broken and ultimately it is way easier and faster to use the conda only, with a few command lines in a terminal.
-- [types](https://docs.python.org/3/library/stdtypes.html) : these are the kind of variables python handles, such a float, integer, string, boolean, list and dictionary. Functions expect a specific types and will raise an error if the wrong type is provided. So you need to be careful in what you provide. Short list :
-  - boolean : `True` or `False`.
-  - int : integer. 1, 2, 1e5, ...
-  - float : float numbers. 1.5, 2.1, -5.8784521, 10/3, ...
-  - list : `["a", 5, "hello", True]`. Enclosed with `[]`, even if it's one element.
-  - tuple : `("a", 5, "hello", True)`. Enclosed with `()`, somewhat similar to list (but not exactly). For single element tuple, it's like this : `("a", )`.
-  - dictionary : `{"key": 5, "something": [1, 2, 3]`. Links a key to a value, the latter can be any python types.
-  - None : python nothing.
-- docstrings : enclosed by triple quotes (`"""docstring"""`), they provide useful informations on what function does and what it expects as inputs.
 
 ## Tips
 - if there is an error, read the error message. Often, it might indicate what went wrong (for instance, could not locate a file, no data, etc.).

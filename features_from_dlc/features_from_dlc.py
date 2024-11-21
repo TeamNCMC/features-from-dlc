@@ -1,44 +1,35 @@
 """
 Package to display features computed from body parts tracked with DeepLabCut (DLC).
 
+The entry point of the package is the `process_directory()` function.
+
 The files generated with DLC, either csv or h5, are supported. They should all be in the
-same directory. Their file names is important : it is used to recognize the conditions
-and the animals ID. It must begin with the animal ID and contain the condition. Along
-with those files, a settings.toml file can be copied from the resources folder. It
-specifies the physical parameters of the experiment : video duration, stimulation
-timings and pixel size. The latter can be specified per-animal. If this file does not
-exist or there are missing information in it, the default values from the configuration
-file are used.
+same directory.
+Their file names is important : it is used to recognize the animals identity and
+conditions. A file must :
+- contain one and only one trial
+- begin with the animal ID
+- contain a bit that uniquely identifies a condition
 
-The "Parameters" section below is user-defined and determines :
-    - modality : refers to the companion configs/xxx.py file, that specifies what
-    are the features to be computed from the DLC file.
-    - animals : only files beginning by these will be processed.
-    - conditions : the file names must contain those. A file can only contain one
-    condition.
-    - what is plotted (see there for options).
+Next to the files to be analyzed, a settings.toml file can be copied from the resources
+folder. It specifies the physical parameters of the experiment : video duration,
+stimulation timings and pixel size. The latter can be specified per-animal.
+If this file does not exist or there are missing information in it, the default values
+from the configuration file are used.
 
-This script loads those files, computes features as defined in the configs/xxx.py file,
+This module loads those files, computes features as defined in the configuration module,
 averages them across groups, computes metrics that quantify the change of the feature
 during the stimulation and plot all that, along with a raster plot of all trials.
-Features and metrics are defined in the config file.
-It saves a summary CSV file with each trials' time series and metadata (animal,
-condition...), figures (svg) and log files stating files used for analysis and files
-dropped because there were too much tracking errors (low likelihood).
+Additionnaly, the delay from the stimulation onset and the behavioral response is
+estimated.
 
-This script should have a folder named "configs" next to it. The latter contains the
-configuration files for each modality (openfield.py, jaw.py, ...) and the file that
-specify plot styles (config_plot.toml).
-
-Requirements
-------------
-- CSV or H5 files to analyze should be placed in one directory.
-- CSV or H5 files names should begin by the animals ID (eg. animal20_blablabla.csv).
-- CSV or H5 files names should contain a bit that identify the condition
-(eg. animal20_blabla_20mW_blabla.csv).
-- A configs/config_plot.toml file must exist.
-- A configs/xxx.py file must exist, xxx is defined as `MODALITY` at the top of this
-script.
+It can save :
+- a CSV file with each trials' time series and metadata (animal,
+condition...),
+- figures (svg),
+- log files stating files used for analysis and files dropped because there were too
+much tracking errors (low likelihood),
+- a summary of the analysis parameters that were used, for reference.
 
 Information
 -----------
@@ -46,19 +37,14 @@ Information
 in a settings.toml file next to the files to be analyzed. Otherwise, default values from
 the configuration file will be used.
 - Modality-specific parameters are specified in configs/xxx.py files.
-- Plot style is defined in the separate configs/config_plot.toml file. See there for
-options.
-- The script is exectuted at the end, see there for input and output directories.
-- If an output directory is defined in the the call (`outdir`), existing files will be
+- Plot style is defined in a separate config_plot.toml file. See there for options.
+- If an output directory is defined (`outdir`), existing files will be
 overridden.
 - You can write your own configuration file. Just copy one that is working and modify
 the computations to your need, respecting the requirements to be compatible with this
 script.
 
 If you're lost, check out the README file, and/or drop me a line :)
-
-author : Guillaume Le Goc (g.legoc@posteo.org)
-version : 2024.11.21
 
 """
 
