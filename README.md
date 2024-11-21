@@ -22,7 +22,7 @@ For more detailed instructions on how to install `conda`, see [this page](https:
   ```
 5. Create a virtual environment named "ffd" :
   ```bash
-  conda create -c conda-forge -n ffd
+  conda create -c conda-forge -n ffd python=3.12
   ```
 6. Activate the environment :
   ```bash

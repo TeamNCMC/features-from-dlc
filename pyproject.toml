@@ -20,7 +20,7 @@ dependencies = [
   "matplotlib>=3.9.0",
   "notebook",
   "numpy>=2.1",
-  "pandas[performance]>2.2.2",
+  "pandas>=2.2.3",
   "seaborn>=0.13.2",
   "shapely>=2.0.4",
   "tables>=3.10.1",
