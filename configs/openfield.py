@@ -11,7 +11,7 @@ This particular version :
 modality : openfield
 features : speed, head angle, body angle, x, y
 author : Guillaume Le Goc (g.legoc@posteo.org), Rémi Proville (Acquineuro)
-version : 2024.11.20
+version : 2024.11.21
 
 """
 

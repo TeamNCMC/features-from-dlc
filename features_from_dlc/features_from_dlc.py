@@ -1,5 +1,5 @@
 """
-Script to display features computed from body parts tracked with DeepLabCut (DLC).
+Package to display features computed from body parts tracked with DeepLabCut (DLC).
 
 The files generated with DLC, either csv or h5, are supported. They should all be in the
 same directory. Their file names is important : it is used to recognize the conditions
@@ -58,7 +58,7 @@ script.
 If you're lost, check out the README file, and/or drop me a line :)
 
 author : Guillaume Le Goc (g.legoc@posteo.org)
-version : 2024.11.19
+version : 2024.11.21
 
 """
 
@@ -79,67 +79,43 @@ from tqdm import tqdm
 
 pd.options.mode.copy_on_write = True  # prepare for pandas 3.0
 
-# --------------------------------- BEGIN USER DEFINED ---------------------------------
-# --- Parameters ---
 
-# type of analysis : "openfield", ... Case sensitive. The file must exists in the
-# configs directory.
-MODALITY = "openfield"
+def get_config(modality: str, path_to_configs: str, settings_file: str | None = None):
+    """
+    Import configuration module.
 
-# - Animals
-# Only files beginning by those will be processed. If only one, write as ("xxx",)
-ANIMALS = ("animal0", "animal1")
+    A `modality`.py file defining the Config class must exist in the `path_to_configs`
+    directory.
 
-# - Groups
-# This must be a dictionnary {key: values}.
-# "key" is the name of the condition that will appear in the graphs -- they must be a
-# unique string ("a"). "values" must be a list (["a", "b"] or ["a"]). It is used to
-# filter file names, eg. files with these elements in their name will be associated to
-# this condition. First, we check if the filename begins with those filters, if it does,
-# it's assigned to the corresponding condition, whether there's something else eleswhere
-# in the file name. See get_condition() function for examples.
-CONDITIONS = {
-    "condition1": ["mouse0"],
-    "condition2": ["identifier"],
-    "condition3": ["something_else"],
-}
+    Parameters
+    ----------
+    modality : str
+        Name of the modality
+    path_to_configs : str
+        Full path to where are the configuration files.
+    settings_file : str, optional
+        Full path to the optional settings.toml file.
 
-# - Options
-# Here, we choose what to plot. When "condition" is mentionned, it means the string must
-# be exactly one of the conditions defined in CONDITIONS above.
-PLOT_POOLED = False  # conditions whose trials are pooled to plot mean, list or None
-PLOT_TRIALS = False  # whether to plot individual trials, bool
-PLOT_CONDITION = True  # whether to plot mean and sem per condition, bool
-PLOT_ANIMAL = False  # whether to plot mean and sem per animal, bool
-PLOT_ANIMAL_MONOCHROME = True  # whether to plot mean per animal in the same color, bool
-PLOT_CONDITION_OFF = None  # conditions NOT to be plotted, list or None
-PLOT_DELAY_LIST = ["condition2", "condition3"]  # delays will be plotted only for those
+    Returns
+    -------
+    cfg : Config
 
-# ---------------------------------- END USER DEFINED ----------------------------------
-HEADER = [1, 2]  # to read CSV correctly
+    """
+    module_path = os.path.join(path_to_configs, modality + ".py")
+    try:
+        spec = importlib.util.spec_from_file_location(modality, module_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    except ImportError:
+        err_msg = f"Could not find '{modality}.py in the '{path_to_configs}' directory."
+        raise ImportError(err_msg)
+
+    return module.Config(settings_file)
 
 
-# --- Preparation ---
-# Configuration files
-def err_msg(s):
-    m = f"Could not find '{s}.py in the 'configs' directory."
-    return m
-
-
-try:
-    Config = importlib.import_module(f"configs.{MODALITY}", package=__name__).Config
-except ImportError:
-    raise ImportError(err_msg(MODALITY))
-
-STYLE_FILE = os.path.join(
-    os.path.abspath(os.path.dirname(__file__)), "configs", "config_plot.toml"
-)
-
-
-# --- Functions
-
-
-def setup_plot_style(style_file: str = STYLE_FILE):
+def setup_plot_style(
+    style_file: str, plot_animal_monochrome: bool = False, nanimals: int = 0
+):
     """
     Setup plots styles defined by the TOML configuration file.
 
@@ -153,6 +129,10 @@ def setup_plot_style(style_file: str = STYLE_FILE):
     ----------
     style_file : str
         Full path to the TOML configuration file.
+    plot_animal_monochrome : bool, optional
+        Whether to plot different animals in the same color, default is False.
+    nanimals : int, optional
+        Number of animals, required only if `plot_animal_monochrome` is True.
 
     Returns
     -------
@@ -179,9 +159,9 @@ def setup_plot_style(style_file: str = STYLE_FILE):
     plt.ion()  # interactive figures
 
     # Parse options
-    if PLOT_ANIMAL_MONOCHROME:
+    if plot_animal_monochrome:
         config_animal = config["animal_monochrome"]
-        config_animal["color"] = len(ANIMALS) * [config_animal["color"]]
+        config_animal["color"] = nanimals * [config_animal["color"]]
     else:
         config_animal = config["animal_color"]
 
@@ -418,6 +398,7 @@ def write_trial_file(trial_name: str, filename: str | None):
 def process_animal(
     files_list: list,
     animal: str,
+    conditions: dict,
     cfg,
     dropfile: str | None = None,
     usefile: str | None = None,
@@ -435,6 +416,8 @@ def process_animal(
         List of CSV or H5 files.
     animal : str
         Animal ID.
+    conditions : dict
+        Conditions names and identifiers.
     cfg : Config
         Config object from configuration file.
     dropfile, usefile : str or None, optional
@@ -469,7 +452,7 @@ def process_animal(
         basename = os.path.basename(file)
 
         # read data (with multi-indexed columns)
-        df_in = read_dlc_file(file, header=HEADER)
+        df_in = read_dlc_file(file, header=[1, 2])
 
         # data cleaning
         df_in = clean_df(
@@ -489,7 +472,7 @@ def process_animal(
             continue
 
         # parse condition based on file name
-        condition = get_condition(basename, CONDITIONS)
+        condition = get_condition(basename, conditions)
         if not condition:
             # the condition was not parsed from the file name, so we drop it
             pbar.write(
@@ -551,7 +534,12 @@ def process_animal(
 
     # concatenate all DataFrames
     if len(df_animal_list) == 0:
-        raise ValueError(f"No data for {animal}. Most likely all trials were dropped.")
+        raise ValueError(
+            (
+                f"No data for {animal}. Most likely all trials were dropped or "
+                "files were not assigned any condition."
+            )
+        )
     df_animal = pd.concat(df_animal_list)
 
     # label the data with the animal ID
@@ -1093,14 +1081,16 @@ def on_pick(event, df: pd.DataFrame):
 
 def nice_plot_serie(
     df: pd.DataFrame,
-    x="time",
-    y="",
-    xlabel="",
-    ylabel="",
+    x: str = "",
+    y: str = "",
+    xlabel: str = "",
+    ylabel: str = "",
+    conditions_order: list | None = None,
     pvalue: float | None = None,
     stim_time: list | tuple | None = None,
     ylim: list | None = None,
     ax: plt.Axes | None = None,
+    plot_options: dict = {},
     kwargs_plot: dict = {},
 ) -> plt.Axes:
     """
@@ -1116,6 +1106,8 @@ def nice_plot_serie(
         Keys in `df`.
     xlabel, ylabel : str
         Labels of x and y axes.
+    conditions_order : list or None
+        If conditions are plotted, specifies in which order they are so.
     pvalue : float or None
         pvalue to display during stim.
     stim_time : 2-elements list or tuple or None
@@ -1123,6 +1115,8 @@ def nice_plot_serie(
     ylim : list or None
         Limit of y axis.
     ax : matplotlib Axes
+    plot_options : dict
+        Plotting options.
     kwargs_plot : dict
         Dictionnary with plot style options.
 
@@ -1131,7 +1125,7 @@ def nice_plot_serie(
     ax : matplotlib Axes
 
     """
-    if PLOT_TRIALS:
+    if plot_options["plot_trials"]:
         # plot individual trials
         palette = len(df["trialID"].unique()) * [kwargs_plot["trial"]["color"]]
         ax = sns.lineplot(
@@ -1147,7 +1141,7 @@ def nice_plot_serie(
             **kwargs_plot["trial"],
         )
 
-    if PLOT_ANIMAL:
+    if plot_options["plot_animal"]:
         # plot mean per animal
         palette = kwargs_plot["animal"]["color"]
         ax = sns.lineplot(
@@ -1163,7 +1157,7 @@ def nice_plot_serie(
             **kwargs_plot["animal"],
         )
 
-    if PLOT_CONDITION:
+    if plot_options["plot_condition"]:
         # plot mean per animal
         palette = kwargs_plot["condition"]["color"]
         ax = sns.lineplot(
@@ -1171,7 +1165,7 @@ def nice_plot_serie(
             x=x,
             y=y,
             hue="condition",
-            hue_order=CONDITIONS.keys(),
+            hue_order=conditions_order,
             estimator="mean",
             errorbar="se",
             palette=palette,
@@ -1180,10 +1174,10 @@ def nice_plot_serie(
             **kwargs_plot["condition"],
         )
 
-    if PLOT_POOLED:
+    if plot_options["plot_pooled"]:
         # plot pooled mean
         ax = sns.lineplot(
-            df[df["condition"].isin(PLOT_POOLED)],
+            df[df["condition"].isin(plot_options["plot_pooled"])],
             x=x,
             y=y,
             estimator="mean",
@@ -1203,7 +1197,7 @@ def nice_plot_serie(
         ax = add_arrows(ax, size=kwargs_plot["arrow_size"])
 
     # determine if the legend should be shown
-    if PLOT_ANIMAL_MONOCHROME or PLOT_TRIALS:
+    if plot_options["plot_animal_monochrome"] or plot_options["plot_trials"]:
         # remove legend
         ax.get_legend().remove()
 
@@ -1225,8 +1219,9 @@ def nice_plot_serie(
 
 def nice_plot_metrics(
     df: pd.DataFrame,
-    x="condition",
-    y="",
+    x: str = "condition",
+    y: str = "",
+    conditions_order: list = [],
     pvalue: float = 0,
     title="",
     ax: plt.Axes | None = None,
@@ -1244,6 +1239,8 @@ def nice_plot_metrics(
     df : pandas.DataFrame
     x, y : str
         Keys in `df`.
+    conditions_order : list
+        Order in which metrics will be plotted.
     pvalue : float
         p-value to plot stars. If 0, no stars will be plotted.
     title : str
@@ -1262,7 +1259,7 @@ def nice_plot_metrics(
         x=x,
         y=y,
         hue=x,
-        order=CONDITIONS.keys(),
+        order=conditions_order,
         estimator="mean",
         errorbar="se",
         ax=ax,
@@ -1289,7 +1286,7 @@ def nice_plot_metrics(
     if pvalue:
         # get bar + errorbar value, sorting as sorted in the plot
         maxvals = (df.groupby(x)[y].mean() + df.groupby(x)[y].sem())[
-            CONDITIONS.keys()
+            conditions_order
         ].values
         c = 0
         for pval in pvalue:
@@ -1523,9 +1520,12 @@ def nice_plot_raster(
 
 
 def process_directory(
+    modality: str,
+    path_to_configs: str,
     directory: str,
     animals: tuple | list,
     conditions: dict,
+    plot_options: dict,
     outdir: str | None = None,
 ):
     """
@@ -1536,12 +1536,18 @@ def process_directory(
 
     Parameters
     ----------
+    modality : str
+        Name of the configuration module.
+    path_to_configs : str
+        Full path to the configuration modules.
     directory : str
         Input directory.
     animals : list, tuple
         List of animals to perform the analysis on.
     conditions : dict
         Conditions and how to get them from the file name.
+    plot_options : dict
+        Plot options.
     outdir : str, optional
         If not None, saves figures there. Default is None.
 
@@ -1553,7 +1559,8 @@ def process_directory(
     # --- Prepare data
     # look for settings.toml file
     settings_file = os.path.join(directory, "settings.toml")
-    cfg = Config(settings_file)
+
+    cfg = get_config(modality, path_to_configs, settings_file)
 
     # try with .h5 files
     files_list = [
@@ -1590,14 +1597,18 @@ def process_directory(
     for animal in pbar:
         pbar.set_description(f"Processing animal {animal}")
         df_align_list.append(
-            process_animal(files_list, animal, cfg, dropfile=dropfile, usefile=usefile)
+            process_animal(
+                files_list, animal, conditions, cfg, dropfile=dropfile, usefile=usefile
+            )
         )
     # concatenate in a single DataFrame
     df_align = pd.concat(df_align_list).reset_index(drop=True)
 
-    if PLOT_CONDITION_OFF:
+    if plot_options["plot_condition_off"]:
         # remove conditions that will not be plotted
-        df_plot = df_align[~df_align["condition"].isin(PLOT_CONDITION_OFF)]
+        df_plot = df_align[
+            ~df_align["condition"].isin(plot_options["plot_condition_off"])
+        ]
     else:
         df_plot = df_align  # take all conditions
 
@@ -1624,7 +1635,11 @@ def process_directory(
     df_delays["delay"] = df_delays["delay"] * 1000  # convert to ms
 
     # --- Plot results
-    kwargs_plot = setup_plot_style(style_file=STYLE_FILE)
+    kwargs_plot = setup_plot_style(
+        style_file=plot_options["style_file"],
+        plot_animal_monochrome=plot_options["plot_animal_monochrome"],
+        nanimals=len(animals),
+    )
 
     # - Features
     figs = []
@@ -1663,10 +1678,12 @@ def process_directory(
             y=feature,
             xlabel=cfg.xlabel_line,
             ylabel=cfg.features_labels[feature],
+            conditions_order=conditions.keys(),
             pvalue=pvalues_stim[feature],
             stim_time=cfg.stim_time,
             ylim=ylim,
             ax=axs[0],
+            plot_options=plot_options,
             kwargs_plot=kwargs_plot,
         )
         if cfg.xlim:
@@ -1681,6 +1698,7 @@ def process_directory(
                 df_metrics,
                 x="condition",
                 y=f"{feature}-{metric}",
+                conditions_order=conditions.keys(),
                 pvalue=pvalues_metrics[feature][metric],
                 title=metric,
                 ax=ax,
@@ -1709,7 +1727,11 @@ def process_directory(
     # - Delays
     print("Plotting delays...", end="", flush=True)
     figd, axd = plt.subplots(figsize=kwargs_plot["figsize"])
-    df_delays_plt = df_delays[df_delays["condition"].isin(PLOT_DELAY_LIST)]
+    df_delays_plt = df_delays[
+        df_delays["condition"].isin(plot_options["plot_delay_list"])
+    ]
+    if df_delays_plt.empty:
+        print("[Warning] Delays are empty, check 'plot_delay_list' in 'plot_options'.")
     nice_plot_delays(
         df_delays_plt,
         x="feature",
@@ -1745,23 +1767,3 @@ def process_directory(
         )
 
     return df_align, df_metrics, df_delays
-
-
-# --- Call ---
-if __name__ == "__main__":
-    # - Full path to the directory with CSV files
-    directory = "/path/to/dlc/results/"
-
-    # - Output directory where figures and mean time series will be saved
-    # do not save anything :
-    # outdir = None
-    # create a "results" subdirectory :
-    outdir = os.path.join(
-        directory, f"results_{"-".join([animal for animal in ANIMALS])}"
-    )
-    # choose directly where to save results :
-    # outdir = /path/to/custom/directory
-
-    df, metrics, delays = process_directory(
-        directory, ANIMALS, CONDITIONS, outdir=outdir
-    )
