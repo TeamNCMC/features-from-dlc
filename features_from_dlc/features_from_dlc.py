@@ -828,7 +828,11 @@ def get_delays(
 
 def get_responsiveness_from_delays(df_delays: pd.DataFrame) -> pd.DataFrame:
     """
-    Get
+    Get responsiveness from delays.
+
+    A trial is considered as responsive if a delay was computed. See get_delays() for
+    more info. Additionnally, an experimental "response score" is computed, defined as
+    the inverse of the delay, or 0 if no delay was computed.
 
     Parameters
     ----------
@@ -837,10 +841,16 @@ def get_responsiveness_from_delays(df_delays: pd.DataFrame) -> pd.DataFrame:
 
     Returns
     -------
-
+    df_response : pd.DataFrame
+        Same as `df_delay` with a 'response' and a 'responsiveness' columns.
 
     """
+    df_response = df_delays.copy()
+    df_response["response"] = df_delays.loc[:, "delays"].isna()
+    df_response["responsiveness"] = 1 / df_delays["delays"]
+    df_response.loc[df_response["responsiveness"].isna(), "responsiveness"] = 0
 
+    return df_response
 
 def pvalue_to_stars(pvalue):
     """
