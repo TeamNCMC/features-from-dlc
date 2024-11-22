@@ -1395,7 +1395,7 @@ def nice_plot_raster(
     kwargs_plot: dict = {},
     quantile: float = 0.99,
     **kwargs,
-) -> plt.figure:
+) -> plt.Figure:
     """
     Display time series as a temporal raster plot.
 
@@ -1518,6 +1518,218 @@ def nice_plot_raster(
     return fig
 
 
+def process_features(df_features: pd.DataFrame, conditions: dict, cfg):
+    """
+    Get data for `plot_all_figures()` from the features DataFrame.
+
+    Computes pvalue during stimulation, in-stim quantifying metrics and corresponding
+    pvalues and responses with delays.
+
+    Parameters
+    ----------
+    df_features : pd.DataFrame
+    conditions : dict
+    cfg : Config
+
+    Returns
+    -------
+    pvalues_stim : dict
+    df_metrics : pd.DataFrame
+    pvalues_metrics : dict
+    df_response : pd.DataFrame
+
+    """
+
+    # get pre/during stim p-values
+    pvalues_stim = {
+        feature: get_pvalue_mean(df_features, feature, cfg.stim_time)
+        for feature in cfg.features.keys()
+    }
+
+    # get in-stim quantitative metric
+    df_metrics, pvalues_metrics = get_quantif_metrics(
+        df_features, cfg.features_metrics, cfg.features_metrics_range, conditions.keys()
+    )
+
+    # delays before motion onset for each feature
+    df_delays = get_delays(
+        df_features,
+        cfg.features,
+        cfg.stim_time,
+        nstd=cfg.nstd,
+        npoints=cfg.npoints,
+        maxdelay=cfg.maxdelay,
+    )
+    df_delays["delay"] = df_delays["delay"] * 1000  # convert to ms
+    df_response = get_responsiveness_from_delays(df_delays)
+
+    return pvalues_stim, df_metrics, pvalues_metrics, df_response
+
+
+def plot_all_figures(
+    df_features: pd.DataFrame,
+    pvalues_stim: dict,
+    df_metrics: pd.DataFrame,
+    pvalues_metrics: dict,
+    df_response: pd.DataFrame,
+    plot_options: dict,
+    conditions: dict,
+    cfg,
+):
+    """Wraps plotting functions."""
+
+    # select data
+    if plot_options["plot_condition_off"]:
+        # remove conditions that will not be plotted
+        df_features_plt = df_features[
+            ~df_features["condition"].isin(plot_options["plot_condition_off"])
+        ]
+    else:
+        df_features_plt = df_features  # take all conditions
+
+    # prepare style
+    kwargs_plot = setup_plot_style(
+        style_file=plot_options["style_file"],
+        plot_animal_monochrome=plot_options["plot_animal_monochrome"],
+        nanimals=len(df_features["animal"].unique()),
+    )
+
+    # - Features
+    figs_features = []
+    pbar = tqdm(cfg.features.keys())
+    for feature in pbar:
+        if hasattr(cfg, "features_off"):  # for backward compatibility
+            if feature in cfg.features_off:
+                continue
+
+        pbar.set_description(f"Plotting {feature}")
+
+        # prepare figure
+        nmetrics = len(cfg.features_metrics[feature])
+        nrows = 1
+        ncols = 3 + nmetrics  # 2 for time series, then 1 for each metric
+        fig = plt.figure(figsize=kwargs_plot["figsize"])
+        axs = []
+        # create axis for time serie
+        ax = fig.add_subplot(nrows, ncols, (1, 3))
+        axs.append(ax)
+        # create axes for in-stim metrics
+        for idx, sharey in zip(
+            range(4, ncols + 1), cfg.features_metrics_share[feature].values()
+        ):
+            ax = fig.add_subplot(nrows, ncols, idx, sharey=axs[0] if sharey else None)
+            axs.append(ax)
+
+        # time series
+        if feature in cfg.features_ylim:
+            ylim = cfg.features_ylim[feature]
+        else:
+            ylim = None
+        nice_plot_serie(
+            df_features_plt,
+            x="time",
+            y=feature,
+            xlabel=cfg.xlabel_line,
+            ylabel=cfg.features_labels[feature],
+            conditions_order=conditions.keys(),
+            pvalue=pvalues_stim[feature],
+            stim_time=cfg.stim_time,
+            ylim=ylim,
+            ax=axs[0],
+            plot_options=plot_options,
+            kwargs_plot=kwargs_plot,
+        )
+        if cfg.xlim:
+            axs[0].set_xlim(cfg.xlim)
+
+        # add callback on lines
+        fig.canvas.mpl_connect("pick_event", partial(on_pick, df=df_features_plt))
+
+        # metrics bars
+        for metric, ax in zip(cfg.features_metrics[feature], axs[1::]):
+            nice_plot_metrics(
+                df_metrics,
+                x="condition",
+                y=f"{feature}-{metric}",
+                conditions_order=conditions.keys(),
+                pvalue=pvalues_metrics[feature][metric],
+                title=metric,
+                ax=ax,
+                kwargs_plot=kwargs_plot,
+            )
+
+        plt.show()
+        figs_features.append(fig)
+
+    # - Raster plot (here all conditions are plotted)
+    print("Plotting raster plot...", end="", flush=True)
+    fig_raster = nice_plot_raster(
+        df_features,  # plot all conditions
+        x="time",
+        y="trialID",
+        features=list(cfg.features.keys()),
+        conditions=list(conditions.keys()),
+        xlabel=cfg.xlabel_line,
+        clabels=cfg.features_labels,
+        kwargs_plot=kwargs_plot,
+        quantile=0.99,
+    )
+    plt.show()
+    print("\t Done.")
+
+    # - Delays
+    print("Plotting delays...", end="", flush=True)
+    fig_delay, axd = plt.subplots(figsize=kwargs_plot["figsize"])
+    df_response_plt = df_response[
+        df_response["condition"].isin(plot_options["plot_delay_list"])
+    ]
+    if df_response_plt.empty:
+        print("[Warning] Delays are empty, check 'plot_delay_list' in 'plot_options'.")
+    nice_plot_bars(
+        df_response_plt,
+        x="feature",
+        y="delay",
+        hue="condition",
+        xlabels=cfg.features_labels,
+        ylabel="delay (ms)",
+        ax=axd,
+        kwargs_plot=kwargs_plot,
+    )
+    print("\t Done.")
+
+    # - Response
+    print("Plotting response...", end="", flush=True)
+    fig_response, axr = plt.subplots(figsize=kwargs_plot["figsize"])
+    nice_plot_bars(
+        df_response_plt,
+        x="feature",
+        y="response",
+        hue="condition",
+        xlabels=cfg.features_labels,
+        ylabel="response rate",
+        ax=axr,
+        kwargs_plot=kwargs_plot,
+    )
+    print("\t Done.")
+
+    # - Responsiveness
+    print("Plotting responsiveness...", end="", flush=True)
+    fig_rspness, axrs = plt.subplots(figsize=kwargs_plot["figsize"])
+    nice_plot_bars(
+        df_response_plt,
+        x="feature",
+        y="responsiveness",
+        hue="condition",
+        xlabels=cfg.features_labels,
+        ylabel="responsiveness (ms$^{-1}$)",
+        ax=axrs,
+        kwargs_plot=kwargs_plot,
+    )
+    print("\t Done.")
+
+    return figs_features, fig_raster, fig_delay, fig_response, fig_rspness
+
+
 def process_directory(
     modality: str,
     path_to_configs: str,
@@ -1601,200 +1813,39 @@ def process_directory(
             )
         )
     # concatenate in a single DataFrame
-    df_align = pd.concat(df_align_list).reset_index(drop=True)
+    df_features = pd.concat(df_align_list).reset_index(drop=True)
 
-    if plot_options["plot_condition_off"]:
-        # remove conditions that will not be plotted
-        df_plot = df_align[
-            ~df_align["condition"].isin(plot_options["plot_condition_off"])
-        ]
-    else:
-        df_plot = df_align  # take all conditions
-
-    # get pre/during stim p-values
-    pvalues_stim = {
-        feature: get_pvalue_mean(df_plot, feature, cfg.stim_time)
-        for feature in cfg.features.keys()
-    }
-
-    # get in-stim quantitative metric
-    df_metrics, pvalues_metrics = get_quantif_metrics(
-        df_align, cfg.features_metrics, cfg.features_metrics_range, conditions.keys()
+    # derive metrics, pvalues, delays and response
+    pvalues_stim, df_metrics, pvalues_metrics, df_response = process_features(
+        df_features, conditions, cfg
     )
 
-    # delays before motion onset for each feature
-    df_delays = get_delays(
-        df_plot,
-        cfg.features,
-        cfg.stim_time,
-        nstd=cfg.nstd,
-        npoints=cfg.npoints,
-        maxdelay=cfg.maxdelay,
+    # --- Plot everything
+    figs_features, fig_raster, fig_delay, fig_response, fig_rspness = plot_all_figures(
+        df_features,
+        pvalues_stim,
+        df_metrics,
+        pvalues_metrics,
+        df_response,
+        plot_options,
+        conditions,
+        cfg,
     )
-    df_delays["delay"] = df_delays["delay"] * 1000  # convert to ms
-    df_response = get_responsiveness_from_delays(df_delays)
-
-    # --- Plot results
-    kwargs_plot = setup_plot_style(
-        style_file=plot_options["style_file"],
-        plot_animal_monochrome=plot_options["plot_animal_monochrome"],
-        nanimals=len(animals),
-    )
-
-    # - Features
-    figs = []
-    pbar = tqdm(cfg.features.keys())
-    for feature in pbar:
-        if hasattr(cfg, "features_off"):  # for backward compatibility
-            if feature in cfg.features_off:
-                continue
-
-        pbar.set_description(f"Plotting {feature}")
-
-        # prepare figure
-        nmetrics = len(cfg.features_metrics[feature])
-        nrows = 1
-        ncols = 3 + nmetrics  # 2 for time series, then 1 for each metric
-        fig = plt.figure(figsize=kwargs_plot["figsize"])
-        axs = []
-        # create axis for time serie
-        ax = fig.add_subplot(nrows, ncols, (1, 3))
-        axs.append(ax)
-        # create axes for in-stim metrics
-        for idx, sharey in zip(
-            range(4, ncols + 1), cfg.features_metrics_share[feature].values()
-        ):
-            ax = fig.add_subplot(nrows, ncols, idx, sharey=axs[0] if sharey else None)
-            axs.append(ax)
-
-        # time series
-        if feature in cfg.features_ylim:
-            ylim = cfg.features_ylim[feature]
-        else:
-            ylim = None
-        nice_plot_serie(
-            df_plot,
-            x="time",
-            y=feature,
-            xlabel=cfg.xlabel_line,
-            ylabel=cfg.features_labels[feature],
-            conditions_order=conditions.keys(),
-            pvalue=pvalues_stim[feature],
-            stim_time=cfg.stim_time,
-            ylim=ylim,
-            ax=axs[0],
-            plot_options=plot_options,
-            kwargs_plot=kwargs_plot,
-        )
-        if cfg.xlim:
-            axs[0].set_xlim(cfg.xlim)
-
-        # add callback on lines
-        fig.canvas.mpl_connect("pick_event", partial(on_pick, df=df_plot))
-
-        # metrics bars
-        for metric, ax in zip(cfg.features_metrics[feature], axs[1::]):
-            nice_plot_metrics(
-                df_metrics,
-                x="condition",
-                y=f"{feature}-{metric}",
-                conditions_order=conditions.keys(),
-                pvalue=pvalues_metrics[feature][metric],
-                title=metric,
-                ax=ax,
-                kwargs_plot=kwargs_plot,
-            )
-
-        plt.show()
-        figs.append(fig)
-
-    # - Raster plot (here all conditions are plotted)
-    print("Plotting raster plot...", end="", flush=True)
-    figra = nice_plot_raster(
-        df_align,  # plot all conditions
-        x="time",
-        y="trialID",
-        features=list(cfg.features.keys()),
-        conditions=list(conditions.keys()),
-        xlabel=cfg.xlabel_line,
-        clabels=cfg.features_labels,
-        kwargs_plot=kwargs_plot,
-        quantile=0.99,
-    )
-    plt.show()
-    print("\t Done.")
-
-    # - Delays
-    print("Plotting delays...", end="", flush=True)
-    figd, axd = plt.subplots(figsize=kwargs_plot["figsize"])
-    df_delays_plt = df_delays[
-        df_delays["condition"].isin(plot_options["plot_delay_list"])
-    ]
-    if df_delays_plt.empty:
-        print("[Warning] Delays are empty, check 'plot_delay_list' in 'plot_options'.")
-    nice_plot_bars(
-        df_delays_plt,
-        x="feature",
-        y="delay",
-        hue="condition",
-        xlabels=cfg.features_labels,
-        ylabel="delay (ms)",
-        ax=axd,
-        kwargs_plot=kwargs_plot,
-    )
-    print("\t Done.")
-
-    # - Response
-    print("Plotting response...", end="", flush=True)
-    figr, axr = plt.subplots(figsize=kwargs_plot["figsize"])
-    df_response_plt = df_response[
-        df_response["condition"].isin(plot_options["plot_delay_list"])
-    ]
-    if df_response_plt.empty:
-        print("[Warning] Delays are empty, check 'plot_delay_list' in 'plot_options'.")
-    nice_plot_bars(
-        df_response_plt,
-        x="feature",
-        y="response",
-        hue="condition",
-        xlabels=cfg.features_labels,
-        ylabel="response rate",
-        ax=axr,
-        kwargs_plot=kwargs_plot,
-    )
-    print("\t Done.")
-
-    # - Responsiveness
-    print("Plotting responsiveness...", end="", flush=True)
-    figrs, axrs = plt.subplots(figsize=kwargs_plot["figsize"])
-    if df_response_plt.empty:
-        print("[Warning] Delays are empty, check 'plot_delay_list' in 'plot_options'.")
-    nice_plot_bars(
-        df_response_plt,
-        x="feature",
-        y="responsiveness",
-        hue="condition",
-        xlabels=cfg.features_labels,
-        ylabel="responsiveness (ms$^{-1}$)",
-        ax=axrs,
-        kwargs_plot=kwargs_plot,
-    )
-    print("\t Done.")
 
     # --- Save results
     if outdir:
         # save figures
-        for fig, feature in zip(figs, cfg.features):
+        for fig, feature in zip(figs_features, cfg.features):
             pbar.set_description(f"Saving figure {feature}")
             fig.savefig(os.path.join(outdir, f"fig_{feature.replace('_', '')}.svg"))
-        figd.savefig(os.path.join(outdir, "fig_delays.svg"))
-        figr.savefig(os.path.join(outdir, "fig_response.svg"))
-        figrs.savefig(os.path.join(outdir, "fig_responsiveness.svg"))
-        figra.savefig(os.path.join(outdir, "fig_raster.svg"))
+        fig_delay.savefig(os.path.join(outdir, "fig_delays.svg"))
+        fig_rspness.savefig(os.path.join(outdir, "fig_response.svg"))
+        fig_response.savefig(os.path.join(outdir, "fig_responsiveness.svg"))
+        fig_raster.savefig(os.path.join(outdir, "fig_raster.svg"))
 
         # save table
-        df_align.to_csv(os.path.join(outdir, "features_time_series.csv"), index=False)
-        df_response.to_csv(os.path.join(outdir, "delays.csv"), index=False)
+        df_features.to_csv(os.path.join(outdir, "features.csv"), index=False)
+        df_response.to_csv(os.path.join(outdir, "response.csv"), index=False)
 
         # save parameters (only the last pixel size used will be written)
         cfg.write_parameters_file(outdir, name="analysis_parameters.toml")
@@ -1807,4 +1858,4 @@ def process_directory(
             )
         )
 
-    return df_align, df_metrics, df_response
+    return df_features, df_metrics, df_response

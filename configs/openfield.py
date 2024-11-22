@@ -11,7 +11,7 @@ This particular version :
 modality : openfield
 features : speed, head angle, body angle, x, y
 author : Guillaume Le Goc (g.legoc@posteo.org), Rémi Proville (Acquineuro)
-version : 2024.11.21
+version : 2024.11.22
 
 """
 
@@ -376,6 +376,8 @@ class Config:
             fid.writelines(f"clip_duration = {self.clip_duration}\n")
             fid.writelines(f"framerate = {self.framerate}\n")
             fid.writelines(f"nstd = {self.nstd}\n")
+            fid.writelines(f"npoints = {self.npoints}\n")
+            fid.writelines(f"maxdelay = {self.maxdelay}\n")
             fid.writelines(f"lh_thresh = {self.lh_thresh}\n")
             fid.writelines(f"lh_percent = {self.lh_percent}\n")
             fid.writelines(f"lh_consecutive = {self.lh_consecutive}\n")

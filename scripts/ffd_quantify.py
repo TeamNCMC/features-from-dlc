@@ -10,6 +10,8 @@ Works with features_from_dlc v2024.11.22
 
 import os
 
+import pandas as pd
+
 import features_from_dlc as ffd
 
 # --- Parameters ---
@@ -68,3 +70,24 @@ plot_options = dict(
 df, metrics, response = ffd.process_directory(
     modality, configs_path, directory, animals, conditions, plot_options, outdir=outdir
 )
+
+# # Alternatively, use already generated features.csv file
+# cfg = ffd.get_config(modality, configs_path, None)  # get config
+# features = pd.read_csv(os.path.join(outdir, "features.csv"))  # load features
+
+# # compute values
+# pvalues_stim, df_metrics, pvalues_metrics, df_response = ffd.process_features(
+#     features, conditions, cfg
+# )
+
+# # plot (figures won't be saved automatically)
+# ffd.plot_all_figures(
+#     features,
+#     pvalues_stim,
+#     df_metrics,
+#     pvalues_metrics,
+#     df_response,
+#     plot_options,
+#     conditions,
+#     cfg,
+# )
