@@ -4,7 +4,7 @@ Script to quantify behavior from DeepLabCut tracking using the features_from_dlc
 Specify each entry, reading carefully what they do, then run the script with the 'ffd'
 conda environment activated.
 
-Works with features_from_dlc v2024.11.21
+Works with features_from_dlc v2024.11.22
 
 """
 
@@ -65,6 +65,6 @@ plot_options = dict(
 )
 
 # Call the processing function
-df, metrics, delays = ffd.process_directory(
+df, metrics, response = ffd.process_directory(
     modality, configs_path, directory, animals, conditions, plot_options, outdir=outdir
 )

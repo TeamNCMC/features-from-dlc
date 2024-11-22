@@ -846,11 +846,12 @@ def get_responsiveness_from_delays(df_delays: pd.DataFrame) -> pd.DataFrame:
 
     """
     df_response = df_delays.copy()
-    df_response["response"] = df_delays.loc[:, "delays"].isna()
-    df_response["responsiveness"] = 1 / df_delays["delays"]
-    df_response.loc[df_response["responsiveness"].isna(), "responsiveness"] = 0
+    df_response["response"] = df_delays.loc[:, "delay"].notna()
+    df_response["responsiveness"] = 1 / df_delays["delay"]
+    df_response["responsiveness"] = df_response["responsiveness"].fillna(0)
 
     return df_response
+
 
 def pvalue_to_stars(pvalue):
     """
@@ -1314,17 +1315,18 @@ def nice_plot_metrics(
     return ax
 
 
-def nice_plot_delays(
+def nice_plot_bars(
     df: pd.DataFrame,
     x="",
     y="",
     hue="",
     xlabels=dict,
+    ylabel="",
     ax: plt.Axes | None = None,
     kwargs_plot: dict = {},
 ) -> plt.Axes:
     """
-    Nice bar plot of delays.
+    Nice bar plot of `y`.
 
     Parameters
     ----------
@@ -1356,7 +1358,8 @@ def nice_plot_delays(
     )
 
     # add data points
-    show_points = kwargs_plot["delays"]["points"].pop("show_points")
+    kwplot = kwargs_plot["delays"]["points"].copy()
+    show_points = kwplot.pop("show_points")
     if show_points:
         ax = sns.stripplot(
             df_plot,
@@ -1366,12 +1369,12 @@ def nice_plot_delays(
             legend=False,
             dodge=True,
             ax=ax,
-            **kwargs_plot["delays"]["points"],
+            **kwplot,
         )
 
     # add/remove axes labels
     ax.set_xlabel("")
-    ax.set_ylabel("delay (ms)")
+    ax.set_ylabel(ylabel)
 
     # plot styling
     if kwargs_plot["arrow"]:
@@ -1629,6 +1632,7 @@ def process_directory(
         maxdelay=cfg.maxdelay,
     )
     df_delays["delay"] = df_delays["delay"] * 1000  # convert to ms
+    df_response = get_responsiveness_from_delays(df_delays)
 
     # --- Plot results
     kwargs_plot = setup_plot_style(
@@ -1706,7 +1710,7 @@ def process_directory(
 
     # - Raster plot (here all conditions are plotted)
     print("Plotting raster plot...", end="", flush=True)
-    figr = nice_plot_raster(
+    figra = nice_plot_raster(
         df_align,  # plot all conditions
         x="time",
         y="trialID",
@@ -1728,13 +1732,51 @@ def process_directory(
     ]
     if df_delays_plt.empty:
         print("[Warning] Delays are empty, check 'plot_delay_list' in 'plot_options'.")
-    nice_plot_delays(
+    nice_plot_bars(
         df_delays_plt,
         x="feature",
         y="delay",
         hue="condition",
         xlabels=cfg.features_labels,
+        ylabel="delay (ms)",
         ax=axd,
+        kwargs_plot=kwargs_plot,
+    )
+    print("\t Done.")
+
+    # - Response
+    print("Plotting response...", end="", flush=True)
+    figr, axr = plt.subplots(figsize=kwargs_plot["figsize"])
+    df_response_plt = df_response[
+        df_response["condition"].isin(plot_options["plot_delay_list"])
+    ]
+    if df_response_plt.empty:
+        print("[Warning] Delays are empty, check 'plot_delay_list' in 'plot_options'.")
+    nice_plot_bars(
+        df_response_plt,
+        x="feature",
+        y="response",
+        hue="condition",
+        xlabels=cfg.features_labels,
+        ylabel="response rate",
+        ax=axr,
+        kwargs_plot=kwargs_plot,
+    )
+    print("\t Done.")
+
+    # - Responsiveness
+    print("Plotting responsiveness...", end="", flush=True)
+    figrs, axrs = plt.subplots(figsize=kwargs_plot["figsize"])
+    if df_response_plt.empty:
+        print("[Warning] Delays are empty, check 'plot_delay_list' in 'plot_options'.")
+    nice_plot_bars(
+        df_response_plt,
+        x="feature",
+        y="responsiveness",
+        hue="condition",
+        xlabels=cfg.features_labels,
+        ylabel="responsiveness (ms$^{-1}$)",
+        ax=axrs,
         kwargs_plot=kwargs_plot,
     )
     print("\t Done.")
@@ -1746,10 +1788,13 @@ def process_directory(
             pbar.set_description(f"Saving figure {feature}")
             fig.savefig(os.path.join(outdir, f"fig_{feature.replace('_', '')}.svg"))
         figd.savefig(os.path.join(outdir, "fig_delays.svg"))
-        figr.savefig(os.path.join(outdir, "fig_raster.svg"))
+        figr.savefig(os.path.join(outdir, "fig_response.svg"))
+        figrs.savefig(os.path.join(outdir, "fig_responsiveness.svg"))
+        figra.savefig(os.path.join(outdir, "fig_raster.svg"))
 
         # save table
         df_align.to_csv(os.path.join(outdir, "features_time_series.csv"), index=False)
+        df_response.to_csv(os.path.join(outdir, "delays.csv"), index=False)
 
         # save parameters (only the last pixel size used will be written)
         cfg.write_parameters_file(outdir, name="analysis_parameters.toml")
@@ -1762,4 +1807,4 @@ def process_directory(
             )
         )
 
-    return df_align, df_metrics, df_delays
+    return df_align, df_metrics, df_response
