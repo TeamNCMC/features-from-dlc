@@ -14,26 +14,26 @@ To use the scripts and notebooks, you first need to install some things. If cond
 For more detailed instructions on how to install `conda`, see [this page](https://teamncmc.github.io/histoquant/main-getting-started.html#python-virtual-environment-manager-conda).
 
 1. Install [miniconda3](https://docs.anaconda.com/miniconda/#id2) as user, add conda to PATH and make it the default interpreter.
-2. Open a terminal (PowerShell in Windows) and run `conda init`. Restart the terminal.
-3. Download, unzip and put this repository in a smart location (eg. `~/programs` or whatever).
-4. Browse to this location from the terminal :
+1. Open a terminal (PowerShell in Windows) and run `conda init`. Restart the terminal.
+1. Download the Source code zip (from Releases on the right), unzip and put it in a relevant location (eg. `~/programs` or whatever).
+1. Browse to this location from the terminal :
   ```bash
   cd /path/to/the/smart/location/features-from-dlc
   ```
-5. Create a virtual environment named "ffd" :
+1. Create a virtual environment named "ffd" :
   ```bash
   conda create -c conda-forge -n ffd python=3.12
   ```
-6. Activate the environment :
+1. Activate the environment :
   ```bash
   conda activate ffd
   ```
-7. Install the package and its dependencies :
+1. Install the package and its dependencies :
   ```bash
   pip install .
   ```
 
-You should be ready to use the scripts and notebooks !
+You should be ready to use the scripts and notebooks ! To update, download the new release and perform steps 6 and 7.
 
 To use the scripts, have a look at the instructions :
 - [`video_cutter`](#using-the-video_cutter-script)
