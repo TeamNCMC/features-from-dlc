@@ -1598,9 +1598,8 @@ def plot_all_figures(
     figs_features = []
     pbar = tqdm(cfg.features.keys())
     for feature in pbar:
-        if hasattr(cfg, "features_off"):  # for backward compatibility
-            if feature in cfg.features_off:
-                continue
+        if feature in cfg.features_off:
+            continue
 
         pbar.set_description(f"Plotting {feature}")
 
@@ -1682,9 +1681,12 @@ def plot_all_figures(
     fig_delay, axd = plt.subplots(figsize=kwargs_plot["figsize"])
     df_response_plt = df_response[
         df_response["condition"].isin(plot_options["plot_delay_list"])
+        & ~df_response["feature"].isin(cfg.features_off)
     ]
+
     if df_response_plt.empty:
         print("[Warning] Delays are empty, check 'plot_delay_list' in 'plot_options'.")
+
     nice_plot_bars(
         df_response_plt,
         x="feature",

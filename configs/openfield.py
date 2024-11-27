@@ -11,7 +11,7 @@ This particular version :
 modality : openfield
 features : speed, head angle, body angle, x, y
 author : Guillaume Le Goc (g.legoc@posteo.org), Rémi Proville (Acquineuro)
-version : 2024.11.22
+version : 2024.11.27
 
 """
 
@@ -75,8 +75,8 @@ FEATURES_LABELS = {
 }
 # Preset y axes limits
 FEATURES_YLIM = {}  # must be [ymin, ymax], empty {} for automatic
-# Features to NOT plot
-FEATURES_OFF = ("xbody", "ybody")
+# Features to NOT plot (must be a list [])
+FEATURES_OFF = ["xbody", "ybody"]
 
 
 # --- Configuration class
