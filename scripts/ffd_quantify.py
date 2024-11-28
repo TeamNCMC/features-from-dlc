@@ -4,7 +4,7 @@ Script to quantify behavior from DeepLabCut tracking using the features_from_dlc
 Specify each entry, reading carefully what they do, then run the script with the 'ffd'
 conda environment activated.
 
-Works with features_from_dlc v2024.11.27
+Works with features_from_dlc v2024.11.28
 
 """
 
@@ -59,10 +59,6 @@ plot_options = dict(
     plot_animal=False,  # whether to plot mean and sem per animal
     plot_animal_monochrome=True,  # whether to plot mean per animal in the same color
     plot_condition_off=None,  # conditions NOT to be plotted, list or None
-    plot_delay_list=[
-        "condition2",
-        "condition3",
-    ],  # delays will be plotted only for those
     style_file=style_file,  # full path to the config_plot.toml file
 )
 

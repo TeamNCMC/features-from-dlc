@@ -669,6 +669,7 @@ def get_delays(
     df: pd.DataFrame,
     features: list,
     stim_time: list | tuple,
+    conditions: list,
     nstd: float = 3,
     npoints: int = 3,
     maxdelay: float = 0.5,
@@ -697,6 +698,9 @@ def get_delays(
         Keys in `df`, used to compute delays.
     stim_time : 2-elements list or tuple
         Stimulation onset and offset.
+    conditions : list
+        List of conditions. Pairwise consecutive conditions will be used to compute
+        p-values. It is required to ensure the ordering.
     nstd : float, optionnal
         Multiplier of standard deviation for threshold definition. Default is 3.
     npoints : int, optional
@@ -709,12 +713,26 @@ def get_delays(
     -------
     df_delays : pandas.DataFrame
         List of delays for each animals and each trials. NaN if no delay found.
+    pvalues : dict
+        pvalues associated with each features, comparing pairs of consecutive groups.
 
     """
+
+    # check if significance test will be performed
+    if len(conditions) < 2:
+        flag_pvalue = False
+    else:
+        flag_pvalue = True
+
+    # make sure conditions is a list
+    if not isinstance(conditions, list):
+        conditions = list(conditions)
+
     # group by trials and conditions
     df_group = df.groupby(["condition", "trialID"])
 
     df_delays_feature = []
+    pvalues = {}  # prepare list of pvalues comparing the consecutive conditions
     for feature in features:
         dfs = []  # initialize output
         for name, df_trial in df_group:
@@ -819,11 +837,25 @@ def get_delays(
 
         df_delay = pd.DataFrame(dfs)  # convert to DataFrame
         df_delay["feature"] = feature  # add corresponding feature
+
+        # compute pvalues for consecutive conditions
+        if flag_pvalue:
+            pvalue = []
+            for idx_condition in range(len(conditions) - 1):
+                cond1 = conditions[idx_condition]
+                cond2 = conditions[idx_condition + 1]
+                values1 = df_delay.loc[df_delay["condition"] == cond1, "delay"].dropna()
+                values2 = df_delay.loc[df_delay["condition"] == cond2, "delay"].dropna()
+                pvalue.append(stats.ttest_ind(values1, values2).pvalue)
+        else:
+            pvalue = None
+
         df_delays_feature.append(df_delay)
+        pvalues[feature] = pvalue
 
     df_delays = pd.concat(df_delays_feature).reset_index().drop(columns="index")
 
-    return df_delays
+    return df_delays, pvalues
 
 
 def get_responsiveness_from_delays(df_delays: pd.DataFrame) -> pd.DataFrame:
@@ -872,7 +904,11 @@ def pvalue_to_stars(pvalue):
         return "**"
     elif pvalue <= 0.05:
         return "*"
-    return "ns"
+    elif pvalue > 0.05:
+        return "ns"
+    else:
+        print("[Warning] pvalue computation errored.")
+        return "error"
 
 
 def add_stars_to_lines(pvalue, stim_time, ax, **kwargs):
@@ -1219,7 +1255,7 @@ def nice_plot_metrics(
     x: str = "condition",
     y: str = "",
     conditions_order: list = [],
-    pvalue: float = 0,
+    pvalues: list | float = 0,
     title="",
     ax: plt.Axes | None = None,
     kwargs_plot: dict = {},
@@ -1238,8 +1274,9 @@ def nice_plot_metrics(
         Keys in `df`.
     conditions_order : list
         Order in which metrics will be plotted.
-    pvalue : float
-        p-value to plot stars. If 0, no stars will be plotted.
+    pvalues : List
+        List of p-values for consecutive conditions to plot stars. If 0, no stars will
+        be plotted.
     title : str
         Axes title.
     ax : matplotlib Axes
@@ -1280,22 +1317,21 @@ def nice_plot_metrics(
         )
 
     # add significance
-    if pvalue:
+    if pvalues:
         # get bar + errorbar value, sorting as sorted in the plot
         maxvals = (df.groupby(x)[y].mean() + df.groupby(x)[y].sem())[
             conditions_order
         ].values
-        c = 0
-        for pval in pvalue:
+
+        for c, pvalue in enumerate(pvalues):
             ax = add_stars_to_bars(
                 [c, c + 1],
                 max(maxvals[c : c + 2]),
-                pval,
+                pvalue,
                 ax=ax,
                 line_kws={"color": "k"},
                 text_kws={"fontsize": "large"},
             )
-            c += 1
 
     # remove axes labels
     ax.set_xlabel("")
@@ -1317,11 +1353,12 @@ def nice_plot_metrics(
 
 def nice_plot_bars(
     df: pd.DataFrame,
-    x="",
-    y="",
-    hue="",
-    xlabels=dict,
-    ylabel="",
+    x: str = "",
+    y: str = "",
+    hue: str = "",
+    pvalues: dict | None = None,
+    xlabels: dict = {},
+    ylabel: str = "",
     ax: plt.Axes | None = None,
     kwargs_plot: dict = {},
 ) -> plt.Axes:
@@ -1333,8 +1370,11 @@ def nice_plot_bars(
     df : pandas.DataFrame
     x, y, hue : str
         Keys in `df`.
+    pvalues : dict
+        Mapping a `x` to a list of pvalues for consecutive `hue`.
     xlabels : dict
         Mapping names found in 'x' in `df` to another values.
+    ylabel : str
     ax : matplotlib Axes
 
     Returns
@@ -1371,6 +1411,40 @@ def nice_plot_bars(
             ax=ax,
             **kwplot,
         )
+
+    # add significance
+    if pvalues:
+        # get offset for each bar at same x (from seaborn)
+        n_levels = len(df[hue].unique())  # number of hue
+        width = 0.8  # 0.8 is default width in sns.barplot()
+        each_width = width / n_levels
+        offsets = np.linspace(0, width - each_width, n_levels)
+        offsets -= offsets.mean()
+
+        for xline_center, xp in enumerate(df[x].unique()):
+            # select data
+            dfpval = df.loc[df[x] == xp, :]
+            pvalue = pvalues[xp]
+
+            if not pvalue:
+                continue
+
+            # get bar + errorbar value, sorting as sorted in the plot
+            maxvals = (
+                dfpval.groupby(hue)[y].mean() + dfpval.groupby(hue)[y].sem()
+            ).values
+
+            for c, pval in enumerate(pvalue):
+                xline_0 = xline_center + offsets[c]
+                xline_1 = xline_center + offsets[c + 1]
+                ax = add_stars_to_bars(
+                    [xline_0, xline_1],
+                    max(maxvals[c : c + 2]),
+                    pval,
+                    ax=ax,
+                    line_kws={"color": "k"},
+                    text_kws={"fontsize": "large"},
+                )
 
     # add/remove axes labels
     ax.set_xlabel("")
@@ -1537,6 +1611,7 @@ def process_features(df_features: pd.DataFrame, conditions: dict, cfg):
     df_metrics : pd.DataFrame
     pvalues_metrics : dict
     df_response : pd.DataFrame
+    pvalues_delays : dict
 
     """
 
@@ -1552,10 +1627,11 @@ def process_features(df_features: pd.DataFrame, conditions: dict, cfg):
     )
 
     # delays before motion onset for each feature
-    df_delays = get_delays(
+    df_delays, pvalues_delays = get_delays(
         df_features,
         cfg.features,
         cfg.stim_time,
+        conditions.keys(),
         nstd=cfg.nstd,
         npoints=cfg.npoints,
         maxdelay=cfg.maxdelay,
@@ -1563,7 +1639,7 @@ def process_features(df_features: pd.DataFrame, conditions: dict, cfg):
     df_delays["delay"] = df_delays["delay"] * 1000  # convert to ms
     df_response = get_responsiveness_from_delays(df_delays)
 
-    return pvalues_stim, df_metrics, pvalues_metrics, df_response
+    return pvalues_stim, df_metrics, pvalues_metrics, df_response, pvalues_delays
 
 
 def plot_all_figures(
@@ -1572,6 +1648,7 @@ def plot_all_figures(
     df_metrics: pd.DataFrame,
     pvalues_metrics: dict,
     df_response: pd.DataFrame,
+    pvalues_delays: dict,
     plot_options: dict,
     conditions: dict,
     cfg,
@@ -1651,7 +1728,7 @@ def plot_all_figures(
                 x="condition",
                 y=f"{feature}-{metric}",
                 conditions_order=conditions.keys(),
-                pvalue=pvalues_metrics[feature][metric],
+                pvalues=pvalues_metrics[feature][metric],
                 title=metric,
                 ax=ax,
                 kwargs_plot=kwargs_plot,
@@ -1679,19 +1756,14 @@ def plot_all_figures(
     # - Delays
     print("Plotting delays...", end="", flush=True)
     fig_delay, axd = plt.subplots(figsize=kwargs_plot["figsize"])
-    df_response_plt = df_response[
-        df_response["condition"].isin(plot_options["plot_delay_list"])
-        & ~df_response["feature"].isin(cfg.features_off)
-    ]
-
-    if df_response_plt.empty:
-        print("[Warning] Delays are empty, check 'plot_delay_list' in 'plot_options'.")
+    df_response_plt = df_response[~df_response["feature"].isin(cfg.features_off)]
 
     nice_plot_bars(
         df_response_plt,
         x="feature",
         y="delay",
         hue="condition",
+        pvalues=pvalues_delays,
         xlabels=cfg.features_labels,
         ylabel="delay (ms)",
         ax=axd,
@@ -1818,8 +1890,8 @@ def process_directory(
     df_features = pd.concat(df_align_list).reset_index(drop=True)
 
     # derive metrics, pvalues, delays and response
-    pvalues_stim, df_metrics, pvalues_metrics, df_response = process_features(
-        df_features, conditions, cfg
+    pvalues_stim, df_metrics, pvalues_metrics, df_response, pvalues_delays = (
+        process_features(df_features, conditions, cfg)
     )
 
     # --- Plot everything
@@ -1829,6 +1901,7 @@ def process_directory(
         df_metrics,
         pvalues_metrics,
         df_response,
+        pvalues_delays,
         plot_options,
         conditions,
         cfg,
