@@ -832,6 +832,7 @@ def get_delays(
                     "trialID": name[1],
                     "delay": delay,
                     "filename": df_trial["filename"].iloc[0],
+                    "animal": df_trial["animal"].iloc[0],
                 }
             )
 
