@@ -37,6 +37,11 @@ conditions = {
     "condition2": ["identifier"],
     "condition3": ["something_else"],
 }
+# Choose whether the conditions are paired, eg. if the same subject appears in several
+# conditions, in which case, paired significance tests will be performed. In that case,
+# all pairs of conditions should involve at least one time the same animal. The other
+# case is unpaired tests (False).
+paired_tests = False
 
 # - Outputs
 # Directory where figures and mean time series will be saved
@@ -64,7 +69,14 @@ plot_options = dict(
 
 # Call the processing function
 df, metrics, response = ffd.process_directory(
-    modality, configs_path, directory, animals, conditions, plot_options, outdir=outdir
+    modality,
+    configs_path,
+    directory,
+    animals,
+    conditions,
+    plot_options,
+    outdir=outdir,
+    paired=paired_tests,
 )
 
 # # Alternatively, use already generated features.csv file
