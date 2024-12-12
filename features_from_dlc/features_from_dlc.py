@@ -23,11 +23,22 @@ during the stimulation and plot all that, along with a raster plot of all trials
 Additionnaly, the delay from the stimulation onset and the behavioral response is
 estimated.
 
+Statistical significance tests are performed. Non-parametrics tests are used. First, an
+overall test is performed across conditions. If a significant difference is found
+between groups, post-hoc pairwise tests are performed and stars are plotted accordingly
+between pairs of consecutive conditions. The full significance table for each metrics
+can also be saved to examine all pairs.
+For paired data : Friedman test (or Cochran for binary data), then pairwise Wilcoxon
+tests.
+For unpaired data : Kruskal-Wallis test, then pairwise Mann-Whitney U tests.
+
 It can save :
-- a CSV file with each trials' time series and metadata (animal,
-condition...),
+- a CSV file with each trials' time series and metadata (animal, condition...),
+- a CSV file with in-stim metrics,
+- a CSV file with response rate and delays,
+- CSV files for each metrics and delays with pairwise significance tests,
 - figures (svg),
-- log files stating files used for analysis and files dropped because there were too
+- log files with files used for analysis and files dropped because there were too
 much tracking errors (low likelihood),
 - a summary of the analysis parameters that were used, for reference.
 
@@ -57,10 +68,10 @@ from functools import partial
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import pingouin as pg
 import seaborn as sns
 from matplotlib import rcParams
 from rich import print
-from scipy import stats
 from tqdm import tqdm
 
 pd.options.mode.copy_on_write = True  # prepare for pandas 3.0
@@ -224,8 +235,8 @@ def get_condition(filename: str, conditions_map: dict) -> str | None:
                 # used in several groups, which is not allowed.
                 raise ValueError(
                     (
-                        "'CONDITIONS' is not valid. Most likely, the same filter was used "
-                        "in several groups."
+                        "'CONDITIONS' is not valid. Most likely, the same filter was "
+                        "used in several groups."
                     )
                 )
 
@@ -534,9 +545,14 @@ def process_animal(
     return df_animal
 
 
-def get_pvalue_mean(df: pd.DataFrame, key: str, stim_time: list | tuple) -> float:
+def get_pvalue_timeserie(
+    df: pd.DataFrame, key: str, stim_time: list | tuple
+) -> float | None:
     """
     Perform a paired ttest between mean values before stim and after stim.
+
+    All trials are pooled, so the test will only be performed if only one condition is
+    present.
 
     Parameters
     ----------
@@ -548,10 +564,14 @@ def get_pvalue_mean(df: pd.DataFrame, key: str, stim_time: list | tuple) -> floa
 
     Returns
     -------
-    pvalue : float
-        p-value.
+    pvalue : float or None
+        p-value or None if no test was performed.
 
     """
+    # check only one condition
+    if df["condition"].nunique() > 1:
+        return None
+
     # pre-stim
     dfpre = df[df["time"] < stim_time[0]]
     dfpre_group = dfpre.groupby("trialID")  # extract time series
@@ -563,13 +583,141 @@ def get_pvalue_mean(df: pd.DataFrame, key: str, stim_time: list | tuple) -> floa
     mean_instim = dfin_group[key].mean().values  # get mean values
 
     # paired ttest
-    result = stats.ttest_rel(mean_prestim, mean_instim)
+    result = pg.ttest(mean_prestim, mean_instim, paired=True)
 
-    return result.pvalue
+    return result.loc["T-test", "p-val"]
+
+
+def perform_stat_test(
+    df: pd.DataFrame,
+    measurement_names: list,
+    paired: bool = False,
+    pthresh: float = 0.05,
+) -> dict[pd.DataFrame]:
+    """
+    Perform statistical tests.
+
+    Input `df` is expected to have columns "condition" and "animal", in addition of
+    measurement names contained in `measurement_names`.
+    Non-parametric pairwise tests are performed between each condition. If paired,
+    Mann-Whitney is used, otherwise, Wilcoxon signed rank is used. For more information,
+    see (1).
+
+    A list of DataFrame the same size as `measurement_names` is returned, containing all
+    information about the result of the pairwise tests.
+
+    (1) https://pingouin-stats.org/build/html/generated/pingouin.pairwise_tests.html
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Measurements DataFrame.
+    measurements_names : list
+        List of measurement names in `df`.
+    paired : bool, optional
+        Whether to perform paired tests (repeted measurements). Default is False.
+    pthresh : float, optional
+        Threshold of p-value of the overall test before post-hoc pairwise tests. Default
+        is 0.05.
+
+    Returns
+    -------
+    results : dict of DataFrame
+        Map a measurement name to a DataFrame with test result summary as returned by
+        `pingouin.pairwise_tests()`.
+
+    """
+    results = {}
+    ncondtions = df["condition"].nunique()
+
+    for meas_name in measurement_names:
+        # check if binary values
+        if df[meas_name].nunique() == 2:
+            binary = True
+        else:
+            binary = False
+        if ncondtions > 2:
+            # check overall significance
+            if paired:
+                if binary:
+                    # cochran test
+                    overall_pvalue = pg.cochran(
+                        data=df, dv=meas_name, within="condition", subject="animal"
+                    )["p-unc"].iloc[0]
+                else:
+                    # friedman test
+                    overall_pvalue = pg.friedman(
+                        data=df, dv=meas_name, within="condition", subject="animal"
+                    )["p-unc"].iloc[0]
+            else:
+                # kruskal-wallis test
+                overall_pvalue = pg.kruskal(data=df, dv=meas_name, between="condition")[
+                    "p-unc"
+                ].iloc[0]
+        else:
+            # we can do pairwise tests directly
+            overall_pvalue = 0
+
+        # do post-hoc tests
+        if paired:
+            # perform paired pairwise tests with pingouin (Wilcoxon)
+            res = df.pairwise_tests(
+                dv=meas_name,
+                within="condition",
+                parametric=False,
+                subject="animal",
+                nan_policy="pairwise",
+            ).round(5)
+        else:
+            # perform unpaired test with pingouin (Mann-Whitney)
+            res = df.pairwise_tests(
+                dv=meas_name, between="condition", parametric=False
+            ).round(5)
+
+        # set p-values to 1 if the overall test was not significant
+        if overall_pvalue > pthresh:
+            res["p-unc"] = 1
+
+        res["metric"] = meas_name  # keep track of the measurement name
+        res["overall-p"] = overall_pvalue
+        results[meas_name] = res
+
+    return results
+
+
+def select_consecutive_pvalues(
+    df_pvalues: pd.DataFrame, conditions_list: list
+) -> list[float]:
+    """
+    Get pvalues for pairs of consecutive conditions.
+
+    Parameters
+    ----------
+    df_pvalues : pd.DataFrame
+        DataFrame as returned by `pingouin.pairwise_tests()`.
+    conditions_list : list
+        List of conditions in the order they are plotted.
+
+    Returns
+    -------
+    pvalues : list of float
+        Consecutive condition pairwise pvalues.
+
+    """
+    pvalues = []
+    for idx in range(len(conditions_list) - 1):
+        cond1 = conditions_list[idx]
+        cond2 = conditions_list[idx + 1]
+        pval = df_pvalues.loc[
+            (df_pvalues["A"] == cond1) & (df_pvalues["B"] == cond2), "p-unc"
+        ].iloc[0]
+        pvalues.append(pval)
+
+    return pvalues
 
 
 def get_quantif_metrics(
-    df: pd.DataFrame, metrics_map: dict, range_map: dict, conditions: list
+    df: pd.DataFrame, metrics_map: dict, range_map: dict, paired=False
 ):
     """
     Compute quantitative metrics during stimulation to compare groups (conditions).
@@ -579,8 +727,7 @@ def get_quantif_metrics(
         - a "condition" column that corresponds to the `conditions`.
         - a "time" column that is used to select stimulation epoch.
         - a "trialID" column that are unique to a time serie.
-    Returns a list of DataFrames, one for each feature.
-    An unpaired T-test is performed between the consecutive groups for each metrics.
+    Non-parametric pairwise tests are performed between conditions for each metrics.
 
     Parameters
     ----------
@@ -589,9 +736,8 @@ def get_quantif_metrics(
         Mapping a feature to a function to apply to get the metric.
     range_map : dict
         Mapping a feature to time range in which the metric is computed.
-    conditions : list
-        List of conditions. Pairwise consecutive conditions will be used to compute
-        p-values. It is required to ensure the ordering.
+    paired : bool, optional
+        Whether to perform paired tests.
 
     Returns
     -------
@@ -599,30 +745,15 @@ def get_quantif_metrics(
         DataFrame with metrics, one column for each feature, along with conditions and
         trial ID.
     pvalues : dict
-        pvalues associated with each features, comparing pairs of consecutive groups.
+        Map a metric name to a DataFrame with test result summary as returned by
+        `pingouin.pairwise_tests()`.
 
     """
-    # convert conditions to list
-    if not isinstance(conditions, list):
-        conditions = list(conditions)
-
-    # check if significance test will be performed
-    if len(conditions) < 2:
-        print(
-            "[Warning] Less than two conditions found, no significance test will be"
-            " performed."
-        )
-        flag_pvalue = False
-    else:
-        flag_pvalue = True
-
     metrics_df_list = []  # prepare DataFrame with metrics
-    pvalues = {}  # prepare list of pvalues comparing the consecutive conditions
+    metric_names_list = []  # prepare list of metrics names
     pbar = tqdm(metrics_map.items())
     for feature, operations in pbar:
         pbar.set_description(f"Computing {feature} metrics")
-
-        pvalues[feature] = {}
 
         for metric, operation in operations.items():
             # select stimulation epoch
@@ -637,30 +768,35 @@ def get_quantif_metrics(
             # group by conditions and trial ID
             df_gp = df_stim.groupby(["condition", "trialID"])
 
+            # get grouped animal list
+            s_animal = df_gp["animal"].unique().str.join("")
+
             # compute metrics for each time series
-            df_metric = df_gp[feature].apply(operation, time)
-            df_metric.name = f"{feature}-{metric}"
+            s_metric = df_gp[feature].apply(operation, time)
 
-            if flag_pvalue:
-                pvalue = []
-                for idx_condition in range(len(conditions) - 1):
-                    cond1 = conditions[idx_condition]
-                    cond2 = conditions[idx_condition + 1]
-                    pvalue.append(
-                        stats.ttest_ind(
-                            df_metric.loc[cond1], df_metric.loc[cond2]
-                        ).pvalue
-                    )
-            else:
-                pvalue = None
+            # make the metric full name
+            metric_name = f"{feature}_{metric}"
+            s_metric.name = metric_name  # add metric name
+            metric_names_list.append(metric_name)  # store the metric name
 
+            # merge
+            df_metric = pd.concat([s_metric, s_animal], axis=1)
+
+            # append to the rest
             metrics_df_list.append(
                 df_metric.reset_index().set_index(["trialID", "condition"])
-            )  # append to the rest
-            pvalues[feature][metric] = pvalue  # append to the rest
+            )
 
     # concatenate DataFrames along rows (merge)
     df_metrics = pd.concat(metrics_df_list, axis=1).reset_index()
+    # remove duplicated "animal" columns
+    df_metrics = df_metrics.loc[:, ~df_metrics.columns.duplicated()].copy()
+
+    # perform stat. tests
+    if df_metrics["condition"].nunique() < 2:
+        pvalues = {metric_name: pd.DataFrame() for metric_name in metric_names_list}
+    else:
+        pvalues = perform_stat_test(df_metrics, metric_names_list, paired=paired)
 
     return df_metrics, pvalues
 
@@ -669,13 +805,13 @@ def get_delays(
     df: pd.DataFrame,
     features: list,
     stim_time: list | tuple,
-    conditions: list,
     nstd: float = 3,
     npoints: int = 3,
     maxdelay: float = 0.5,
+    paired: bool = False,
 ):
     """
-    Find delay of response with respect to stimulation onset.
+    Find delay of response with respect to stimulation onset. Also gets response.
 
     To determine motion onset :
     1. Find where the signal first deviates `nstd` times the pre-stim standard deviation
@@ -698,9 +834,6 @@ def get_delays(
         Keys in `df`, used to compute delays.
     stim_time : 2-elements list or tuple
         Stimulation onset and offset.
-    conditions : list
-        List of conditions. Pairwise consecutive conditions will be used to compute
-        p-values. It is required to ensure the ordering.
     nstd : float, optionnal
         Multiplier of standard deviation for threshold definition. Default is 3.
     npoints : int, optional
@@ -708,31 +841,24 @@ def get_delays(
     maxdelay : float, optional
         Maximum allowed delay, above which it is discarded, in the same units as time.
         Default is 0.5.
+    paired : bool, optional
+        Whether to perform paired tests.
 
     Returns
     -------
-    df_delays : pandas.DataFrame
+    df_response : pandas.DataFrame
         List of delays for each animals and each trials. NaN if no delay found.
-    pvalues : dict
-        pvalues associated with each features, comparing pairs of consecutive groups.
+    pvalues_delays, pvalues_response : dict
+        Map a feature name to a DataFrame with test result summary as returned by
+        `pingouin.pairwise_tests()`.
 
     """
-
-    # check if significance test will be performed
-    if len(conditions) < 2:
-        flag_pvalue = False
-    else:
-        flag_pvalue = True
-
-    # make sure conditions is a list
-    if not isinstance(conditions, list):
-        conditions = list(conditions)
-
     # group by trials and conditions
     df_group = df.groupby(["condition", "trialID"])
 
-    df_delays_feature = []
-    pvalues = {}  # prepare list of pvalues comparing the consecutive conditions
+    df_response_feature = []
+    pvalues_delays = {}
+    pvalues_response = {}
     for feature in features:
         dfs = []  # initialize output
         for name, df_trial in df_group:
@@ -836,54 +962,32 @@ def get_delays(
                 }
             )
 
-        df_delay = pd.DataFrame(dfs)  # convert to DataFrame
-        df_delay["feature"] = feature  # add corresponding feature
+        df_resp = pd.DataFrame(dfs)  # convert to DataFrame
+        df_resp["feature"] = feature  # add corresponding feature
 
-        # compute pvalues for consecutive conditions
-        if flag_pvalue:
-            pvalue = []
-            for idx_condition in range(len(conditions) - 1):
-                cond1 = conditions[idx_condition]
-                cond2 = conditions[idx_condition + 1]
-                values1 = df_delay.loc[df_delay["condition"] == cond1, "delay"].dropna()
-                values2 = df_delay.loc[df_delay["condition"] == cond2, "delay"].dropna()
-                pvalue.append(stats.ttest_ind(values1, values2).pvalue)
+        # compute response
+        # 1 if a delay was computed, 0 otherwise
+        df_resp["response"] = df_resp.loc[:, "delay"].notna() * 1
+        # inverse of the delay, np.nan will stay np.nan
+        df_resp["responsiveness"] = 1 / df_resp["delay"]
+        # replace np.nan with 0 (no response)
+        df_resp["responsiveness"] = df_resp["responsiveness"].fillna(0)
+
+        # perform stat. tests
+        if df_resp["condition"].nunique() < 2:
+            pvalues_delays[feature] = pd.DataFrame()
+            pvalues_response[feature] = pd.DataFrame()
         else:
-            pvalue = None
+            pval = perform_stat_test(df_resp, ["delay"], paired=paired)
+            pvalues_delays[feature] = pval["delay"]
+            pval = perform_stat_test(df_resp, ["response"], paired=paired)
+            pvalues_response[feature] = pval["response"]
 
-        df_delays_feature.append(df_delay)
-        pvalues[feature] = pvalue
+        df_response_feature.append(df_resp)
 
-    df_delays = pd.concat(df_delays_feature).reset_index().drop(columns="index")
+    df_response = pd.concat(df_response_feature).reset_index().drop(columns="index")
 
-    return df_delays, pvalues
-
-
-def get_responsiveness_from_delays(df_delays: pd.DataFrame) -> pd.DataFrame:
-    """
-    Get responsiveness from delays.
-
-    A trial is considered as responsive if a delay was computed. See get_delays() for
-    more info. Additionnally, an experimental "response score" is computed, defined as
-    the inverse of the delay, or 0 if no delay was computed.
-
-    Parameters
-    ----------
-    df_delays : pd.DataFrame
-        Delays as created by `get_delays()`.
-
-    Returns
-    -------
-    df_response : pd.DataFrame
-        Same as `df_delay` with a 'response' and a 'responsiveness' columns.
-
-    """
-    df_response = df_delays.copy()
-    df_response["response"] = df_delays.loc[:, "delay"].notna()
-    df_response["responsiveness"] = 1 / df_delays["delay"]
-    df_response["responsiveness"] = df_response["responsiveness"].fillna(0)
-
-    return df_response
+    return df_response, pvalues_delays, pvalues_response
 
 
 def pvalue_to_stars(pvalue):
@@ -929,6 +1033,10 @@ def add_stars_to_lines(pvalue, stim_time, ax, **kwargs):
     ax : matplotlib axes
 
     """
+    if not pvalue:
+        # pvalue was not computed
+        return ax
+
     stars = pvalue_to_stars(pvalue)  # get stars
 
     # get text coordinates
@@ -1161,7 +1269,7 @@ def nice_plot_serie(
     """
     if plot_options["plot_trials"]:
         # plot individual trials
-        palette = len(df["trialID"].unique()) * [kwargs_plot["trial"]["color"]]
+        palette = df["trialID"].nunique() * [kwargs_plot["trial"]["color"]]
         ax = sns.lineplot(
             df,
             x=x,
@@ -1416,7 +1524,7 @@ def nice_plot_bars(
     # add significance
     if pvalues:
         # get offset for each bar at same x (from seaborn)
-        n_levels = len(df[hue].unique())  # number of hue
+        n_levels = df[hue].nunique()  # number of hue
         width = 0.8  # 0.8 is default width in sns.barplot()
         each_width = width / n_levels
         offsets = np.linspace(0, width - each_width, n_levels)
@@ -1593,7 +1701,7 @@ def nice_plot_raster(
     return fig
 
 
-def process_features(df_features: pd.DataFrame, conditions: dict, cfg):
+def process_features(df_features: pd.DataFrame, cfg, paired: bool = False):
     """
     Get data for `plot_all_figures()` from the features DataFrame.
 
@@ -1603,8 +1711,8 @@ def process_features(df_features: pd.DataFrame, conditions: dict, cfg):
     Parameters
     ----------
     df_features : pd.DataFrame
-    conditions : dict
     cfg : Config
+    paired : bool
 
     Returns
     -------
@@ -1613,48 +1721,93 @@ def process_features(df_features: pd.DataFrame, conditions: dict, cfg):
     pvalues_metrics : dict
     df_response : pd.DataFrame
     pvalues_delays : dict
+    pvalues_response : dict
 
     """
 
     # get pre/during stim p-values
     pvalues_stim = {
-        feature: get_pvalue_mean(df_features, feature, cfg.stim_time)
+        feature: get_pvalue_timeserie(df_features, feature, cfg.stim_time)
         for feature in cfg.features.keys()
     }
 
     # get in-stim quantitative metric
     df_metrics, pvalues_metrics = get_quantif_metrics(
-        df_features, cfg.features_metrics, cfg.features_metrics_range, conditions.keys()
+        df_features, cfg.features_metrics, cfg.features_metrics_range, paired=paired
     )
 
     # delays before motion onset for each feature
-    df_delays, pvalues_delays = get_delays(
+    df_response, pvalues_delays, pvalues_response = get_delays(
         df_features,
         cfg.features,
         cfg.stim_time,
-        conditions.keys(),
         nstd=cfg.nstd,
         npoints=cfg.npoints,
         maxdelay=cfg.maxdelay,
+        paired=paired,
     )
-    df_delays["delay"] = df_delays["delay"] * 1000  # convert to ms
-    df_response = get_responsiveness_from_delays(df_delays)
+    df_response["delay"] = df_response["delay"] * 1000  # convert to ms
 
-    return pvalues_stim, df_metrics, pvalues_metrics, df_response, pvalues_delays
+    return (
+        pvalues_stim,
+        df_metrics,
+        pvalues_metrics,
+        df_response,
+        pvalues_delays,
+        pvalues_response,
+    )
 
 
 def plot_all_figures(
     df_features: pd.DataFrame,
-    pvalues_stim: dict,
+    pvalues_stim: dict | None,
     df_metrics: pd.DataFrame,
     pvalues_metrics: dict,
     df_response: pd.DataFrame,
     pvalues_delays: dict,
+    pvalues_response: dict,
     plot_options: dict,
-    conditions: dict,
+    conditions_list: list,
     cfg,
-):
-    """Wraps plotting functions."""
+) -> list[plt.Figure]:
+    """
+    Wraps plotting functions.
+
+    Parameters
+    ----------
+    df_features : pd.DataFrame
+        DataFrame with time series as returned by `process_animal()` or
+        `process_directory()`.
+    pvalues_stim : dict
+        Maps a feature to a pvalue for time series mean during stim.
+    df_metrics : pd.DataFrame
+        DataFrame with metrics quantifying in-stim change, as returned by
+        `process_features()`.
+    pvalues_metrics : dict
+        Maps a metric name to stat. tests performed with `pingouin`, as returned by
+        `process_features()`.
+    df_response : pd.DataFrame
+        DataFrame with delays, response and responsiveness as returned by
+        `process_features()`.
+    pvalues_delays : dict
+        Maps a feature to a stat. tests performed with `pingouin`, as returned by
+        `process_features()`.
+    pvalues_response: dict
+        Maps a feature to a stat. tests performed with `pingouin`, as returned by
+        `process_features()`.
+    plot_options : dict
+        Plotting options (see example script).
+    conditions_list : list
+        List of conditions to plot in which order.
+    cfg : Config
+        Configuration object.
+
+    Returns
+    -------
+    list[plt.Figure]
+        List of all generated figures.
+
+    """
 
     # select data
     if plot_options["plot_condition_off"]:
@@ -1708,7 +1861,7 @@ def plot_all_figures(
             y=feature,
             xlabel=cfg.xlabel_line,
             ylabel=cfg.features_labels[feature],
-            conditions_order=conditions.keys(),
+            conditions_order=conditions_list,
             pvalue=pvalues_stim[feature],
             stim_time=cfg.stim_time,
             ylim=ylim,
@@ -1724,12 +1877,19 @@ def plot_all_figures(
 
         # metrics bars
         for metric, ax in zip(cfg.features_metrics[feature], axs[1::]):
+            # build metric name
+            metric_name = f"{feature}_{metric}"
+            # get consecutive pvalues between conditions
+            pvals = select_consecutive_pvalues(
+                pvalues_metrics[metric_name], conditions_list
+            )
+            # plot bars
             nice_plot_metrics(
                 df_metrics,
                 x="condition",
-                y=f"{feature}-{metric}",
-                conditions_order=conditions.keys(),
-                pvalues=pvalues_metrics[feature][metric],
+                y=metric_name,
+                conditions_order=conditions_list,
+                pvalues=pvals,
                 title=metric,
                 ax=ax,
                 kwargs_plot=kwargs_plot,
@@ -1745,7 +1905,7 @@ def plot_all_figures(
         x="time",
         y="trialID",
         features=list(cfg.features.keys()),
-        conditions=list(conditions.keys()),
+        conditions=conditions_list,
         xlabel=cfg.xlabel_line,
         clabels=cfg.features_labels,
         kwargs_plot=kwargs_plot,
@@ -1758,13 +1918,16 @@ def plot_all_figures(
     print("Plotting delays...", end="", flush=True)
     fig_delay, axd = plt.subplots(figsize=kwargs_plot["figsize"])
     df_response_plt = df_response[~df_response["feature"].isin(cfg.features_off)]
-
+    pval_delays_plt = {
+        feature: select_consecutive_pvalues(pvalues_delays[feature], conditions_list)
+        for feature in pvalues_delays.keys()
+    }
     nice_plot_bars(
         df_response_plt,
         x="feature",
         y="delay",
         hue="condition",
-        pvalues=pvalues_delays,
+        pvalues=pval_delays_plt,
         xlabels=cfg.features_labels,
         ylabel="delay (ms)",
         ax=axd,
@@ -1775,11 +1938,17 @@ def plot_all_figures(
     # - Response
     print("Plotting response...", end="", flush=True)
     fig_response, axr = plt.subplots(figsize=kwargs_plot["figsize"])
+    pval_response_plt = {
+        feature: select_consecutive_pvalues(pvalues_response[feature], conditions_list)
+        for feature in pvalues_response.keys()
+    }
+
     nice_plot_bars(
         df_response_plt,
         x="feature",
         y="response",
         hue="condition",
+        pvalues=pval_response_plt,
         xlabels=cfg.features_labels,
         ylabel="response rate",
         ax=axr,
@@ -1813,7 +1982,8 @@ def process_directory(
     conditions: dict,
     plot_options: dict,
     outdir: str | None = None,
-):
+    paired: bool = False,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     Process the directory.
 
@@ -1836,10 +2006,14 @@ def process_directory(
         Plot options.
     outdir : str, optional
         If not None, saves figures there. Default is None.
+    paired : bool, optional
+        Whether to perform paired tests, default is False.
 
     Returns
     -------
-    df : pandas.DataFrame
+    df_features, df_metrics, df_response : pd.DataFrame
+        Resp. contain the features time series, the in-stim quantifying metrics and the
+        delays and responsiveness.
 
     """
     # --- Prepare data
@@ -1891,9 +2065,14 @@ def process_directory(
     df_features = pd.concat(df_align_list).reset_index(drop=True)
 
     # derive metrics, pvalues, delays and response
-    pvalues_stim, df_metrics, pvalues_metrics, df_response, pvalues_delays = (
-        process_features(df_features, conditions, cfg)
-    )
+    (
+        pvalues_stim,
+        df_metrics,
+        pvalues_metrics,
+        df_response,
+        pvalues_delays,
+        pvalues_response,
+    ) = process_features(df_features, cfg, paired=paired)
 
     # --- Plot everything
     figs_features, fig_raster, fig_delay, fig_response, fig_rspness = plot_all_figures(
@@ -1903,8 +2082,9 @@ def process_directory(
         pvalues_metrics,
         df_response,
         pvalues_delays,
+        pvalues_response,
         plot_options,
-        conditions,
+        list(conditions.keys()),
         cfg,
     )
 
@@ -1919,9 +2099,19 @@ def process_directory(
         fig_response.savefig(os.path.join(outdir, "fig_responsiveness.svg"))
         fig_raster.savefig(os.path.join(outdir, "fig_raster.svg"))
 
-        # save table
+        # save tables
         df_features.to_csv(os.path.join(outdir, "features.csv"), index=False)
+        df_metrics.to_csv(os.path.join(outdir, "metrics.csv"), index=False)
         df_response.to_csv(os.path.join(outdir, "response.csv"), index=False)
+        for metric, pval in pvalues_metrics.items():
+            pval.to_csv(os.path.join(outdir, f"stats_{metric}.csv"), index=False)
+        for feature in pvalues_delays.keys():
+            pvalues_delays[feature].to_csv(
+                os.path.join(outdir, f"stats_delays_{feature}.csv"), index=False
+            )
+            pvalues_response[feature].to_csv(
+                os.path.join(outdir, f"stats_response_{feature}.csv"), index=False
+            )
 
         # save parameters (only the last pixel size used will be written)
         cfg.write_parameters_file(outdir, name="analysis_parameters.toml")
