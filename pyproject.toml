@@ -1,6 +1,6 @@
 [project]
 name = "features-from-dlc"
-version = "2024.12.3"
+version = "2024.12.12"
 authors = [{ name = "Guillaume Le Goc", email = "g.legoc@posteo.org" }]
 description = "Behavioral quantification from DeepLabCut tracking"
 readme = "README.md"

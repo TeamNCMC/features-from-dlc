@@ -23,11 +23,22 @@ during the stimulation and plot all that, along with a raster plot of all trials
 Additionnaly, the delay from the stimulation onset and the behavioral response is
 estimated.
 
+Statistical significance tests are performed. Non-parametrics tests are used. First, an
+overall test is performed across conditions. If a significant difference is found
+between groups, post-hoc pairwise tests are performed and stars are plotted accordingly
+between pairs of consecutive conditions. The full significance table for each metrics
+can also be saved to examine all pairs.
+For paired data : Friedman test (or Cochran for binary data), then pairwise Wilcoxon
+tests.
+For unpaired data : Kruskal-Wallis test, then pairwise Mann-Whitney U tests.
+
 It can save :
-- a CSV file with each trials' time series and metadata (animal,
-condition...),
+- a CSV file with each trials' time series and metadata (animal, condition...),
+- a CSV file with in-stim metrics,
+- a CSV file with response rate and delays,
+- CSV files for each metrics and delays with pairwise significance tests,
 - figures (svg),
-- log files stating files used for analysis and files dropped because there were too
+- log files with files used for analysis and files dropped because there were too
 much tracking errors (low likelihood),
 - a summary of the analysis parameters that were used, for reference.
 
@@ -558,7 +569,7 @@ def get_pvalue_timeserie(
 
     """
     # check only one condition
-    if len(df["condition"].unique()) > 1:
+    if df["condition"].nunique() > 1:
         return None
 
     # pre-stim
@@ -578,7 +589,10 @@ def get_pvalue_timeserie(
 
 
 def perform_stat_test(
-    df: pd.DataFrame, measurement_names: list, paired=False
+    df: pd.DataFrame,
+    measurement_names: list,
+    paired: bool = False,
+    pthresh: float = 0.05,
 ) -> dict[pd.DataFrame]:
     """
     Perform statistical tests.
@@ -600,6 +614,11 @@ def perform_stat_test(
         Measurements DataFrame.
     measurements_names : list
         List of measurement names in `df`.
+    paired : bool, optional
+        Whether to perform paired tests (repeted measurements). Default is False.
+    pthresh : float, optional
+        Threshold of p-value of the overall test before post-hoc pairwise tests. Default
+        is 0.05.
 
     Returns
     -------
@@ -609,12 +628,45 @@ def perform_stat_test(
 
     """
     results = {}
+    ncondtions = df["condition"].nunique()
 
     for meas_name in measurement_names:
+        # check if binary values
+        if df[meas_name].nunique() == 2:
+            binary = True
+        else:
+            binary = False
+        if ncondtions > 2:
+            # check overall significance
+            if paired:
+                if binary:
+                    # cochran test
+                    overall_pvalue = pg.cochran(
+                        data=df, dv=meas_name, within="condition", subject="animal"
+                    )["p-unc"].iloc[0]
+                else:
+                    # friedman test
+                    overall_pvalue = pg.friedman(
+                        data=df, dv=meas_name, within="condition", subject="animal"
+                    )["p-unc"].iloc[0]
+            else:
+                # kruskal-wallis test
+                overall_pvalue = pg.kruskal(data=df, dv=meas_name, between="condition")[
+                    "p-unc"
+                ].iloc[0]
+        else:
+            # we can do pairwise tests directly
+            overall_pvalue = 0
+
+        # do post-hoc tests
         if paired:
-            # perform paired test with pingouin (Wilcoxon)
+            # perform paired pairwise tests with pingouin (Wilcoxon)
             res = df.pairwise_tests(
-                dv=meas_name, within="condition", parametric=False, subject="animal"
+                dv=meas_name,
+                within="condition",
+                parametric=False,
+                subject="animal",
+                nan_policy="pairwise",
             ).round(5)
         else:
             # perform unpaired test with pingouin (Mann-Whitney)
@@ -622,7 +674,12 @@ def perform_stat_test(
                 dv=meas_name, between="condition", parametric=False
             ).round(5)
 
+        # set p-values to 1 if the overall test was not significant
+        if overall_pvalue > pthresh:
+            res["p-unc"] = 1
+
         res["metric"] = meas_name  # keep track of the measurement name
+        res["overall-p"] = overall_pvalue
         results[meas_name] = res
 
     return results
@@ -736,12 +793,8 @@ def get_quantif_metrics(
     df_metrics = df_metrics.loc[:, ~df_metrics.columns.duplicated()].copy()
 
     # perform stat. tests
-    if len(df_metrics["condition"].unique()) < 2:
-        print(
-            "[Warning] Less than two conditions found, no significance tests will be"
-            " performed."
-        )
-        pvalues = None
+    if df_metrics["condition"].nunique() < 2:
+        pvalues = {metric_name: pd.DataFrame() for metric_name in metric_names_list}
     else:
         pvalues = perform_stat_test(df_metrics, metric_names_list, paired=paired)
 
@@ -758,7 +811,7 @@ def get_delays(
     paired: bool = False,
 ):
     """
-    Find delay of response with respect to stimulation onset.
+    Find delay of response with respect to stimulation onset. Also gets response.
 
     To determine motion onset :
     1. Find where the signal first deviates `nstd` times the pre-stim standard deviation
@@ -793,9 +846,9 @@ def get_delays(
 
     Returns
     -------
-    df_delays : pandas.DataFrame
+    df_response : pandas.DataFrame
         List of delays for each animals and each trials. NaN if no delay found.
-    pvalues : dict
+    pvalues_delays, pvalues_response : dict
         Map a feature name to a DataFrame with test result summary as returned by
         `pingouin.pairwise_tests()`.
 
@@ -803,8 +856,9 @@ def get_delays(
     # group by trials and conditions
     df_group = df.groupby(["condition", "trialID"])
 
-    df_delays_feature = []
-    pvalues = {}
+    df_response_feature = []
+    pvalues_delays = {}
+    pvalues_response = {}
     for feature in features:
         dfs = []  # initialize output
         for name, df_trial in df_group:
@@ -908,52 +962,32 @@ def get_delays(
                 }
             )
 
-        df_delay = pd.DataFrame(dfs)  # convert to DataFrame
-        df_delay["feature"] = feature  # add corresponding feature
+        df_resp = pd.DataFrame(dfs)  # convert to DataFrame
+        df_resp["feature"] = feature  # add corresponding feature
+
+        # compute response
+        # 1 if a delay was computed, 0 otherwise
+        df_resp["response"] = df_resp.loc[:, "delay"].notna() * 1
+        # inverse of the delay, np.nan will stay np.nan
+        df_resp["responsiveness"] = 1 / df_resp["delay"]
+        # replace np.nan with 0 (no response)
+        df_resp["responsiveness"] = df_resp["responsiveness"].fillna(0)
 
         # perform stat. tests
-        if len(df_delay["condition"].unique()) < 2:
-            print(
-                "[Warning] Less than two conditions found, no significance tests will"
-                " be performed."
-            )
-            pvalues[feature] = None
+        if df_resp["condition"].nunique() < 2:
+            pvalues_delays[feature] = pd.DataFrame()
+            pvalues_response[feature] = pd.DataFrame()
         else:
-            pval = perform_stat_test(df_delay, ["delay"], paired=paired)
-            pvalues[feature] = pval["delay"]
+            pval = perform_stat_test(df_resp, ["delay"], paired=paired)
+            pvalues_delays[feature] = pval["delay"]
+            pval = perform_stat_test(df_resp, ["response"], paired=paired)
+            pvalues_response[feature] = pval["response"]
 
-        df_delays_feature.append(df_delay)
+        df_response_feature.append(df_resp)
 
-    df_delays = pd.concat(df_delays_feature).reset_index().drop(columns="index")
+    df_response = pd.concat(df_response_feature).reset_index().drop(columns="index")
 
-    return df_delays, pvalues
-
-
-def get_responsiveness_from_delays(df_delays: pd.DataFrame) -> pd.DataFrame:
-    """
-    Get responsiveness from delays.
-
-    A trial is considered as responsive if a delay was computed. See get_delays() for
-    more info. Additionnally, an experimental "response score" is computed, defined as
-    the inverse of the delay, or 0 if no delay was computed.
-
-    Parameters
-    ----------
-    df_delays : pd.DataFrame
-        Delays as created by `get_delays()`.
-
-    Returns
-    -------
-    df_response : pd.DataFrame
-        Same as `df_delay` with a 'response' and a 'responsiveness' columns.
-
-    """
-    df_response = df_delays.copy()
-    df_response["response"] = df_delays.loc[:, "delay"].notna()
-    df_response["responsiveness"] = 1 / df_delays["delay"]
-    df_response["responsiveness"] = df_response["responsiveness"].fillna(0)
-
-    return df_response
+    return df_response, pvalues_delays, pvalues_response
 
 
 def pvalue_to_stars(pvalue):
@@ -1235,7 +1269,7 @@ def nice_plot_serie(
     """
     if plot_options["plot_trials"]:
         # plot individual trials
-        palette = len(df["trialID"].unique()) * [kwargs_plot["trial"]["color"]]
+        palette = df["trialID"].nunique() * [kwargs_plot["trial"]["color"]]
         ax = sns.lineplot(
             df,
             x=x,
@@ -1490,7 +1524,7 @@ def nice_plot_bars(
     # add significance
     if pvalues:
         # get offset for each bar at same x (from seaborn)
-        n_levels = len(df[hue].unique())  # number of hue
+        n_levels = df[hue].nunique()  # number of hue
         width = 0.8  # 0.8 is default width in sns.barplot()
         each_width = width / n_levels
         offsets = np.linspace(0, width - each_width, n_levels)
@@ -1667,9 +1701,7 @@ def nice_plot_raster(
     return fig
 
 
-def process_features(
-    df_features: pd.DataFrame, conditions: dict, cfg, paired: bool = False
-):
+def process_features(df_features: pd.DataFrame, cfg, paired: bool = False):
     """
     Get data for `plot_all_figures()` from the features DataFrame.
 
@@ -1679,7 +1711,6 @@ def process_features(
     Parameters
     ----------
     df_features : pd.DataFrame
-    conditions : dict
     cfg : Config
     paired : bool
 
@@ -1690,6 +1721,7 @@ def process_features(
     pvalues_metrics : dict
     df_response : pd.DataFrame
     pvalues_delays : dict
+    pvalues_response : dict
 
     """
 
@@ -1705,7 +1737,7 @@ def process_features(
     )
 
     # delays before motion onset for each feature
-    df_delays, pvalues_delays = get_delays(
+    df_response, pvalues_delays, pvalues_response = get_delays(
         df_features,
         cfg.features,
         cfg.stim_time,
@@ -1714,19 +1746,26 @@ def process_features(
         maxdelay=cfg.maxdelay,
         paired=paired,
     )
-    df_delays["delay"] = df_delays["delay"] * 1000  # convert to ms
-    df_response = get_responsiveness_from_delays(df_delays)
+    df_response["delay"] = df_response["delay"] * 1000  # convert to ms
 
-    return pvalues_stim, df_metrics, pvalues_metrics, df_response, pvalues_delays
+    return (
+        pvalues_stim,
+        df_metrics,
+        pvalues_metrics,
+        df_response,
+        pvalues_delays,
+        pvalues_response,
+    )
 
 
 def plot_all_figures(
     df_features: pd.DataFrame,
-    pvalues_stim: dict,
+    pvalues_stim: dict | None,
     df_metrics: pd.DataFrame,
     pvalues_metrics: dict,
     df_response: pd.DataFrame,
     pvalues_delays: dict,
+    pvalues_response: dict,
     plot_options: dict,
     conditions_list: list,
     cfg,
@@ -1737,28 +1776,37 @@ def plot_all_figures(
     Parameters
     ----------
     df_features : pd.DataFrame
-        _description_
+        DataFrame with time series as returned by `process_animal()` or
+        `process_directory()`.
     pvalues_stim : dict
-        _description_
+        Maps a feature to a pvalue for time series mean during stim.
     df_metrics : pd.DataFrame
-        _description_
+        DataFrame with metrics quantifying in-stim change, as returned by
+        `process_features()`.
     pvalues_metrics : dict
-        _description_
+        Maps a metric name to stat. tests performed with `pingouin`, as returned by
+        `process_features()`.
     df_response : pd.DataFrame
-        _description_
+        DataFrame with delays, response and responsiveness as returned by
+        `process_features()`.
     pvalues_delays : dict
-        _description_
+        Maps a feature to a stat. tests performed with `pingouin`, as returned by
+        `process_features()`.
+    pvalues_response: dict
+        Maps a feature to a stat. tests performed with `pingouin`, as returned by
+        `process_features()`.
     plot_options : dict
-        _description_
+        Plotting options (see example script).
     conditions_list : list
-        _description_
-    cfg : _type_
-        _description_
+        List of conditions to plot in which order.
+    cfg : Config
+        Configuration object.
 
     Returns
     -------
     list[plt.Figure]
-        _description_
+        List of all generated figures.
+
     """
 
     # select data
@@ -1890,11 +1938,17 @@ def plot_all_figures(
     # - Response
     print("Plotting response...", end="", flush=True)
     fig_response, axr = plt.subplots(figsize=kwargs_plot["figsize"])
+    pval_response_plt = {
+        feature: select_consecutive_pvalues(pvalues_response[feature], conditions_list)
+        for feature in pvalues_response.keys()
+    }
+
     nice_plot_bars(
         df_response_plt,
         x="feature",
         y="response",
         hue="condition",
+        pvalues=pval_response_plt,
         xlabels=cfg.features_labels,
         ylabel="response rate",
         ax=axr,
@@ -1929,7 +1983,7 @@ def process_directory(
     plot_options: dict,
     outdir: str | None = None,
     paired: bool = False,
-):
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     Process the directory.
 
@@ -1957,7 +2011,9 @@ def process_directory(
 
     Returns
     -------
-    df : pandas.DataFrame
+    df_features, df_metrics, df_response : pd.DataFrame
+        Resp. contain the features time series, the in-stim quantifying metrics and the
+        delays and responsiveness.
 
     """
     # --- Prepare data
@@ -2009,9 +2065,14 @@ def process_directory(
     df_features = pd.concat(df_align_list).reset_index(drop=True)
 
     # derive metrics, pvalues, delays and response
-    pvalues_stim, df_metrics, pvalues_metrics, df_response, pvalues_delays = (
-        process_features(df_features, conditions, cfg, paired=paired)
-    )
+    (
+        pvalues_stim,
+        df_metrics,
+        pvalues_metrics,
+        df_response,
+        pvalues_delays,
+        pvalues_response,
+    ) = process_features(df_features, cfg, paired=paired)
 
     # --- Plot everything
     figs_features, fig_raster, fig_delay, fig_response, fig_rspness = plot_all_figures(
@@ -2021,6 +2082,7 @@ def process_directory(
         pvalues_metrics,
         df_response,
         pvalues_delays,
+        pvalues_response,
         plot_options,
         list(conditions.keys()),
         cfg,
@@ -2037,9 +2099,19 @@ def process_directory(
         fig_response.savefig(os.path.join(outdir, "fig_responsiveness.svg"))
         fig_raster.savefig(os.path.join(outdir, "fig_raster.svg"))
 
-        # save table
+        # save tables
         df_features.to_csv(os.path.join(outdir, "features.csv"), index=False)
+        df_metrics.to_csv(os.path.join(outdir, "metrics.csv"), index=False)
         df_response.to_csv(os.path.join(outdir, "response.csv"), index=False)
+        for metric, pval in pvalues_metrics.items():
+            pval.to_csv(os.path.join(outdir, f"stats_{metric}.csv"), index=False)
+        for feature in pvalues_delays.keys():
+            pvalues_delays[feature].to_csv(
+                os.path.join(outdir, f"stats_delays_{feature}.csv"), index=False
+            )
+            pvalues_response[feature].to_csv(
+                os.path.join(outdir, f"stats_response_{feature}.csv"), index=False
+            )
 
         # save parameters (only the last pixel size used will be written)
         cfg.write_parameters_file(outdir, name="analysis_parameters.toml")
