@@ -13,7 +13,7 @@ To use the scripts and notebooks, you first need to install some things. If cond
 
 For more detailed instructions on how to install `conda`, see [this page](https://teamncmc.github.io/histoquant/main-getting-started.html#python-virtual-environment-manager-conda).
 
-1. Install [miniconda3](https://docs.anaconda.com/miniconda/#id2) as user, add conda to PATH and make it the default interpreter.
+1. Install [miniconda3](https://repo.anaconda.com/miniconda/) (choose the "latest" version for your system) as user, add conda to PATH and make it the default interpreter.
 1. Open a terminal (PowerShell in Windows) and run `conda init`. Restart the terminal.
 1. Download the Source code zip (from Releases on the right), unzip and put it in a relevant location (eg. `~/programs` or whatever).
 1. Browse to this location from the terminal :
