@@ -44,32 +44,7 @@ To use the notebooks, two options :
 - Use Jupyter directly in its web browser interface : from the terminal, activate the conda environment : `conda activate ffd`, then launch Jupyter : `jupyter lab /path/to/the/notebooks/notebook.ipynb`
 
 ##  Using the video_cutter script
-This script (`/scripts/video_cutter.py`) is used to cut long recording containing multiple stimulations into single-stimulation clips.
-
-It uses the video file and a corresponding stimulation trace stored as a text or binary file.
-
-To use it, first install required dependencies following steps 1-5 in the [Quick start](#quick-start) section.  
-Then, you need to install ffmpeg on your system. If it is not the case already you can follow this for Windows :  
-1. Download the latest "essential" build from [here](https://www.gyan.dev/ffmpeg/builds/). Unzip it somewhere relevant (in a "Programs" directory or something), and copy the path to the `bin` folder (making sure it contains both 'ffmpeg.exe' and 'ffprobe.exe').
-2. Paste this path in the `FFMPEG_BIN_DIR` variable. In the event ffmpeg is added to your PATH (eg. `ffmpeg` is recognised in a terminal), you can leave `FFMPEG_BIN_DIR` set to an empty string (`""`).
-3. Fill in the parameters according to your need.
-3. From the terminal with the ffd environment activated, browse to the script location :  
-```bash
-conda activate ffd
-cd path/to/features-from-dlc/scripts/
-```
-
-And run the script on your videos :  
-```bash
-python video_cutter.py path/to/your/videos
-```
-
-The script is built as a command line interface (cli), for detailed usage, use :  
-```bash
-python video_cutter --help
-```
-
-The script processes all videos found in the input directory that have a txt/csv/bin file with the same name. The latter is read to determine the stimulation onsets. Extracted clips are created in {video-name}-cropped folder and are numbered from 0 to the number of stimulations found in the stimulation file.
+This moved in a standalone package, see [here](https://github.com/TeamNCMC/videocutter).
 
 ### Notes
 - The format of txt files exported from Labscribe depends on its version... Sometimes the values are separated by commas (`,`), sometimes tabulations. To be sure, open the file with a text editor and see if there are "," or big spaces between values on a row. Edit the `SEP` parameter accordingly in the script.

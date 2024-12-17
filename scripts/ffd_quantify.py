@@ -4,7 +4,7 @@ Script to quantify behavior from DeepLabCut tracking using the features_from_dlc
 Specify each entry, reading carefully what they do, then run the script with the 'ffd'
 conda environment activated.
 
-Works with features_from_dlc v2024.12.12
+Works with features_from_dlc v2024.12.17
 
 """
 
