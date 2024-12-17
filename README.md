@@ -46,12 +46,6 @@ To use the notebooks, two options :
 ##  Using the video_cutter script
 This moved in a standalone package, see [here](https://github.com/TeamNCMC/videocutter).
 
-### Notes
-- The format of txt files exported from Labscribe depends on its version... Sometimes the values are separated by commas (`,`), sometimes tabulations. To be sure, open the file with a text editor and see if there are "," or big spaces between values on a row. Edit the `SEP` parameter accordingly in the script.
-- Again with Labscribe, it's unclear when or which versions creates a header to this text file (names for each columns). The two should work : if there are non-numeric values on the first line of the file, it will be considered as a header and discarded.
-- Parameters (time before and after stimulation onset, ...) are set as variables directly in the script, but you can override them by passing options to the script from the command line, like so :  
-`python video-cutter.py path/to/videos --sep \t`
-
 ## The `features_from_dlc` package
 
 ### Introduction
