@@ -1,4 +1,4 @@
-# Analyse DeepLabCut outputs
+# features_from_dlc
 This repository contains a package called `features_from_dlc` that is used to compute and plot behavioral metrics from DeepLabCut tracking files.
 
 You'll also find some utility scripts in the scripts folder, as well as separate notebooks (.ipynb files) in the notebooks directory.
@@ -7,7 +7,7 @@ Jump to :
 - [Install instruction](#quick-start)
 - [The `features_from_dlc` package](#the-features_from_dlc-package)
 
-##  Quick start
+##  Installation
 To use the scripts and notebooks, you first need to install some things. If conda is already installed, ignore steps 1-2.
 
 For more detailed instructions on how to install `conda`, see [this page](https://teamncmc.github.io/histoquant/main-getting-started.html#python-virtual-environment-manager-conda).
@@ -34,15 +34,11 @@ For more detailed instructions on how to install `conda`, see [this page](https:
 
 You should be ready to use the scripts and notebooks ! To update, download the new release and perform steps 6 and 7.
 
-To use the scripts, have a look at the instructions :
-- [`video_cutter`](#using-the-video_cutter-script)
-- [`features_from_dlc`](#the-features_from_dlc-package)
-
 To use the notebooks, two options :
 - Use an IDE with Jupyter notebooks support such as [Visual Studio Code](https://code.visualstudio.com/download). Install the Python and Jupyter extensions (the squared pieces on the left panel). Open the notebook with vscode, on the top right you should be able to select a kernel : choose "ffd".
 - Use Jupyter directly in its web browser interface : from the terminal, activate the conda environment : `conda activate ffd`, then launch Jupyter : `jupyter lab /path/to/the/notebooks/notebook.ipynb`
 
-## The `features_from_dlc` package
+## In-depth description of `features_from_dlc`
 
 ### Introduction
 This package is meant to be used to compute and display features from DeepLabCut (DLC) tracking files.
