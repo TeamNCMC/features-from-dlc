@@ -1,6 +1,6 @@
 [project]
 name = "features-from-dlc"
-version = "2024.12.17"
+version = "2024.12.18"
 authors = [{ name = "Guillaume Le Goc", email = "g.legoc@posteo.org" }]
 description = "Behavioral quantification from DeepLabCut tracking"
 readme = "README.md"
@@ -40,5 +40,7 @@ build-backend = "hatchling.build"
 line-length = 88
 extend-include = ["*.ipynb"]
 
-[tool.setuptools.packages.find]
-include = ["features_from_dlc"]
+[tool.hatch.build]
+include = [
+    "features_from_dlc"
+]

@@ -705,13 +705,20 @@ def select_consecutive_pvalues(
 
     """
     pvalues = []
+
     for idx in range(len(conditions_list) - 1):
         cond1 = conditions_list[idx]
         cond2 = conditions_list[idx + 1]
+        # get pair
         pval = df_pvalues.loc[
             (df_pvalues["A"] == cond1) & (df_pvalues["B"] == cond2), "p-unc"
-        ].iloc[0]
-        pvalues.append(pval)
+        ]
+        if len(pval) == 0:
+            # try the reverse pair
+            pval = df_pvalues.loc[
+                (df_pvalues["B"] == cond1) & (df_pvalues["A"] == cond2), "p-unc"
+            ]
+        pvalues.append(pval.iloc[0])
 
     return pvalues
 
@@ -1300,7 +1307,7 @@ def nice_plot_serie(
         )
 
     if plot_options["plot_condition"]:
-        # plot mean per animal
+        # plot mean per condition
         palette = kwargs_plot["condition"]["color"]
         ax = sns.lineplot(
             df,
@@ -1363,7 +1370,7 @@ def nice_plot_metrics(
     df: pd.DataFrame,
     x: str = "condition",
     y: str = "",
-    conditions_order: list = [],
+    order: list = [],
     pvalues: list | float = 0,
     title="",
     ax: plt.Axes | None = None,
@@ -1381,7 +1388,7 @@ def nice_plot_metrics(
     df : pandas.DataFrame
     x, y : str
         Keys in `df`.
-    conditions_order : list
+    order : list
         Order in which metrics will be plotted.
     pvalues : List
         List of p-values for consecutive conditions to plot stars. If 0, no stars will
@@ -1402,7 +1409,8 @@ def nice_plot_metrics(
         x=x,
         y=y,
         hue=x,
-        order=conditions_order,
+        order=order,
+        hue_order=order,
         estimator="mean",
         errorbar="se",
         ax=ax,
@@ -1419,6 +1427,8 @@ def nice_plot_metrics(
             x=x,
             y=y,
             hue=x,
+            order=order,
+            hue_order=order,
             legend=False,
             dodge=True,
             ax=ax,
@@ -1428,9 +1438,7 @@ def nice_plot_metrics(
     # add significance
     if pvalues:
         # get bar + errorbar value, sorting as sorted in the plot
-        maxvals = (df.groupby(x)[y].mean() + df.groupby(x)[y].sem())[
-            conditions_order
-        ].values
+        maxvals = (df.groupby(x)[y].mean() + df.groupby(x)[y].sem())[order].values
 
         for c, pvalue in enumerate(pvalues):
             ax = add_stars_to_bars(
@@ -1465,6 +1473,7 @@ def nice_plot_bars(
     x: str = "",
     y: str = "",
     hue: str = "",
+    hue_order: list = [],
     pvalues: dict | None = None,
     xlabels: dict = {},
     ylabel: str = "",
@@ -1479,6 +1488,8 @@ def nice_plot_bars(
     df : pandas.DataFrame
     x, y, hue : str
         Keys in `df`.
+    hue_order : list
+        Order in which to plot the hues.
     pvalues : dict
         Mapping a `x` to a list of pvalues for consecutive `hue`.
     xlabels : dict
@@ -1500,6 +1511,7 @@ def nice_plot_bars(
         x=x,
         y=y,
         hue=hue,
+        hue_order=hue_order,
         estimator="mean",
         errorbar="se",
         ax=ax,
@@ -1515,6 +1527,7 @@ def nice_plot_bars(
             x=x,
             y=y,
             hue=hue,
+            hue_order=hue_order,
             legend=False,
             dodge=True,
             ax=ax,
@@ -1539,9 +1552,9 @@ def nice_plot_bars(
                 continue
 
             # get bar + errorbar value, sorting as sorted in the plot
-            maxvals = (
-                dfpval.groupby(hue)[y].mean() + dfpval.groupby(hue)[y].sem()
-            ).values
+            maxvals = (dfpval.groupby(hue)[y].mean() + dfpval.groupby(hue)[y].sem())[
+                hue_order
+            ].values
 
             for c, pval in enumerate(pvalue):
                 xline_0 = xline_center + offsets[c]
@@ -1888,7 +1901,7 @@ def plot_all_figures(
                 df_metrics,
                 x="condition",
                 y=metric_name,
-                conditions_order=conditions_list,
+                order=conditions_list,
                 pvalues=pvals,
                 title=metric,
                 ax=ax,
@@ -1927,6 +1940,7 @@ def plot_all_figures(
         x="feature",
         y="delay",
         hue="condition",
+        hue_order=conditions_list,
         pvalues=pval_delays_plt,
         xlabels=cfg.features_labels,
         ylabel="delay (ms)",
@@ -1948,6 +1962,7 @@ def plot_all_figures(
         x="feature",
         y="response",
         hue="condition",
+        hue_order=conditions_list,
         pvalues=pval_response_plt,
         xlabels=cfg.features_labels,
         ylabel="response rate",
@@ -1964,6 +1979,7 @@ def plot_all_figures(
         x="feature",
         y="responsiveness",
         hue="condition",
+        hue_order=conditions_list,
         xlabels=cfg.features_labels,
         ylabel="responsiveness (ms$^{-1}$)",
         ax=axrs,
