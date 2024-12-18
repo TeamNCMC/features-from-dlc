@@ -5,7 +5,6 @@ You'll also find some utility scripts in the scripts folder, as well as separate
 
 Jump to :
 - [Install instruction](#quick-start)
-- [The `video_cutter` script](#using-the-video_cutter-script)
 - [The `features_from_dlc` package](#the-features_from_dlc-package)
 
 ##  Quick start
@@ -13,7 +12,7 @@ To use the scripts and notebooks, you first need to install some things. If cond
 
 For more detailed instructions on how to install `conda`, see [this page](https://teamncmc.github.io/histoquant/main-getting-started.html#python-virtual-environment-manager-conda).
 
-1. Install [miniconda3](https://repo.anaconda.com/miniconda/) (choose the "latest" version for your system) as user, add conda to PATH and make it the default interpreter.
+1. Install [Miniforge](https://conda-forge.org/download/) (choose the latest version for your system) as user, add conda to PATH and make it the default interpreter.
 1. Open a terminal (PowerShell in Windows) and run `conda init`. Restart the terminal.
 1. Download the Source code zip (from Releases on the right), unzip and put it in a relevant location (eg. `~/programs` or whatever).
 1. Browse to this location from the terminal :
@@ -22,7 +21,7 @@ For more detailed instructions on how to install `conda`, see [this page](https:
     ```
 1. Create a virtual environment named "ffd" :
     ```bash
-    conda create -c conda-forge -n ffd python=3.12
+    conda create -n ffd python=3.12
     ```
 1. Activate the environment :
     ```bash
@@ -43,9 +42,6 @@ To use the notebooks, two options :
 - Use an IDE with Jupyter notebooks support such as [Visual Studio Code](https://code.visualstudio.com/download). Install the Python and Jupyter extensions (the squared pieces on the left panel). Open the notebook with vscode, on the top right you should be able to select a kernel : choose "ffd".
 - Use Jupyter directly in its web browser interface : from the terminal, activate the conda environment : `conda activate ffd`, then launch Jupyter : `jupyter lab /path/to/the/notebooks/notebook.ipynb`
 
-##  Using the video_cutter script
-This moved in a standalone package, see [here](https://github.com/TeamNCMC/videocutter).
-
 ## The `features_from_dlc` package
 
 ### Introduction
@@ -57,8 +53,6 @@ Anyone can write its own configuration file to compute any required features (su
 
 #### Tip
 You don't have to read this document entirely to get started, you can jump to the [Getting started](#getting-started), [Requirements](#requirements) or [Usage](#usage) sections.
-
-In some extent, the script itself is self-documented, which means _a lot_ of information on how things work are written as comment (`#`) or docstrings (`"""`) within the files.
 
 #### Use case
 The use case is :
@@ -79,20 +73,20 @@ Note that after installation, the `features_from_dlc` package is installed insid
 ##### Visual Studio Code
 It's easier to use as conda is nicely integrated and it is made easy to switch between environments.
 1. Install [vscode](https://code.visualstudio.com/download) (it does not require admin rights).
-2. Install Python extension (squared pieces in the left panel).
-3. Open the `scripts/ffd_quantify.py` script. In the bottom right corner, you should see a "conda" entry : click on it and select the ffd conda environment. To run the script, click on the Play item on the top right.
+1. Install Python extension (squared pieces in the left panel).
+1. Open the `scripts/ffd_quantify.py` script. In the bottom right corner, you should see a "conda" entry : click on it and select the ffd conda environment. To run the script, click on the Play item on the top right.
 
 #### Requirements
-You need to have tracked your video clips with DeepLabCut and saved the output files (either .h5 or .csv files). One file corresponds to one and only one trial, so you might need to split your original videos into several short clips around the stimulation onsets and offsets beforehand. This can be done with the script provided in the scripts folder. All files analyzed together must :
-- be individual trials with the same duration, the same pixel size, and the stimulation must occur at the same timings,
+You need to have tracked your video clips with DeepLabCut and saved the output files (either .h5 or .csv files). One file corresponds to one and only one trial, so you might need to split your original videos into several short clips around the stimulation onsets and offsets beforehand. This can be done with [`videocutter` program](https://github.com/TeamNCMC/videocutter). All files analyzed together must :
 - all be in the same directory,
+- be individual trials with the same duration and the stimulation must occur at the same timings,
 - have consistent file names. In particular, those file names must :
-  - start with the animal ID,
-  - contains _something_ that allows to group those files into different categories. Those are called conditions. For instance, if you want to compare several animals at different laser power, their file names must contain something that identify that power, for instance all trials corresponding to 10mW will have "10mW" somewhere in their file names, while all trials corresponding to "20mW" will have "20mW" somewhere in their file names. Therefore, in that case, a file can not have both "10mW" and "20mW" in its filename. Of course, this applies for any conditions. Note that it means it can be limiting as you can't analyze 5mW and 25mW as different conditions (because "5mW" will appear in both groups).
+  - start with the subject (animal) ID,
+  - contains _something_ that allows to group those files into different categories. Those are called *conditions*. For instance, if you want to compare several animals at different laser power, their file names must contain something that identify that power, for example, all trials corresponding to 10mW will have "10mW" somewhere in their file names, while all trials corresponding to "20mW" will have "20mW" somewhere in their file names. Therefore, in that case, a file can not have both "10mW" and "20mW" in its filename. Of course, this applies for any conditions. Be cautious, "5mW" and "25mW" as different conditions  won't work because "5mW" will appear in both groups, so you need to find a workaround (for instance the 5mW group could be identified with "_5mW").
 
 You also need a configuration file. It defines the features one wants to extract, the metrics that quantify the change during stimulation, the thresholds used to filter incorrect tracks and some display parameters (axes names). See [The configuration file](#the-configuration-file).
 
-Optionnaly, you can have a settings.toml file next to DLC files to analyze. It specifies the experimental settings (timings and pixel size). If the file does not exist, default values from the configuration file will be used instead. See [The settings.toml file](#the-settingstoml-file).
+Optionnaly, you can have a settings.toml file next to the DLC files to analyze. It specifies the experimental settings (timings and pixel size). If the file does not exist, default values from the configuration file will be used instead. See [The settings.toml file](#the-settingstoml-file).
 
 #### Usage
 1. Copy-paste the `scripts/ffd_quantify.py` file elsewhere on your computer, open it with an editor.
@@ -109,7 +103,8 @@ Optionnaly, you can have a settings.toml file next to DLC files to analyze. It s
        animal70_20mW_blabla.h5 -> "control"  
        animal71_10mW_blabla.h5 -> "low"  
        animal81_20mW_blabla.h5 -> "high"
-1. Fill the `- Outputs` section. Basically specify the directory where to put the results (summary and figures) by setting the `outdir` variable.
+    - `paired_tests` : Whether the conditions are paired or not, eg. if the same subject appears in several conditions, in which case all pairs of conditions should involve at least one time the same animal.
+1. Fill the `- Outputs` section. Specify the directory where to put the results (summary and figures) by setting the `outdir` variable.
 1. Fill the `- Options` section. Those are the display options, eg. what to plot and how. The `plot_options` should be a dictionnary with the following keys :
    - `plot_pooled`: `None` or a list of conditions (`["a"]` or `["a", "b"]`). Conditions whose trials are pooled to plot a pooled mean and sem. Useful when conditions are "Control" and "Injected" for example. If `None`, this is not plotted.
    - `plot_trials`: `True` or `False`. Whether to plot individual trials. When there are a lot, it's a good idea not to show them to not clutter the graphs.
@@ -119,11 +114,13 @@ Optionnaly, you can have a settings.toml file next to DLC files to analyze. It s
    - `plot_condition_off`: `None` or a list. List of conditions NOT to be plotted. Does not apply for the raster plots nor the bar plots next to the time series.
    - `plot_delay_list`: List of conditions whose delay will be displayed in the figure.
    - `style_file`: full path to the plot configuration file that specifies the graphs colors, linewidths...
-1. Check the configs/xxx.py file, where "xxx" corresponds to `modality` specified in the script. In particular, check that `PIXEL_SIZE`, `STIM_TIME` and `CLIP_DURATION` correspond to your experimental conditions if a settings.toml file is not provided with the DLC files to be analyzed. Also check that `BODYPARTS` contains all the bodyparts used to compute features. Check that the thresholds defined in the `--- Data cleaning parameters` section make sense.
+1. Check the modality.py configuration file. In particular, check that `PIXEL_SIZE`, `STIM_TIME` and `CLIP_DURATION` correspond to your experimental conditions if a settings.toml file is not provided with the DLC files to be analyzed. Also check that `BODYPARTS` contains all the bodyparts used to compute features. Check that the thresholds defined in the `--- Data cleaning parameters` section make sense.
 1. Run the script ! Make sure you activated the `ffd` conda environment.
 
+Alternatively, you can also just display the plots from data previously processed. To do so, comment out the call to `ffd.process_directory` and uncomment the following block.
+
 #### The configuration file
-This file actually defines how are computed the requested features. An example for openfield experiments is provided in the `configs` folder. In case you want to write your own, you should start from there. If you have no idea where to start, ask me (Guillaume, [g.legoc@posteo.org](mailto:g.legoc@posteo.org)).
+This file actually defines how are computed the requested features. An example for openfield experiments is provided in the `configs` folder. In case you want to write your own, you should start from there.
 
 Note that those files are *very* specific : they use DLC bodyparts directly so the latter need to exist in the tracking file (eg. bodyparts should be named _exactly_ the same and correspond to _exactly_  the same bodypart). All the variables in here are used in the main script, so they all need to be defined, while imports will depend on what is needed. If you don't want to actually use them, you need to find a trick so that the functionnality is disabled but the script is still working.
 
@@ -132,7 +129,7 @@ This file consists in some variables defined at the top of the file, and a Pytho
 ##### Global variables
 ###### Physical parameters
 This is where we convert images to real-world units. Those values are used only if they are missing from the settings.toml file placed next to the DLC files to analyze or if it does not exist.
-- `PIXEL_SIZE`: Conversion factor from image coordinates to real-world length, expressed in unit of length (eg. mm). To measure that, you can open a video in Fiji (File > Import > Movie (FFMPEG)). Then with the Line tool, measure in pixels the length of known object. Then, `PIXEL_SIZE` will be $length_{mm}/length_{pixels}$, optionally averaging two conversion in the horizontal and vertical directions.
+- `PIXEL_SIZE`: Conversion factor from image coordinates to real-world length, expressed in unit of length (eg. mm). To measure that, you can open a video in Fiji (File > Import > Movie (FFMPEG)). Then with the Line tool, measure in pixels the length of a known object. Then, `PIXEL_SIZE` will be $length_{mm}/length_{pixels}$, optionally averaging two conversions in the horizontal and vertical directions.
 - `CLIP_DURATION`: Duration of the video clips, in units of time (eg. seconds). Each DLC file contains $n_{frames}$ lines, so we use that to convert frames to real-world time.
 - `STIM_TIME`: tuple with 2 elements. The onset and offset of the stimulation in the video clip, in the same units as `CLIP_DURATION`.
 - `FRAMERATE`: This is **not** the actual framerate of the videos. It is used to create a generic time vector on which the time series are aligned, so that we can properly average each trace at the same time points. It should correspond to the lowest framerate you have in your videos.
@@ -142,12 +139,12 @@ This is where we define what it is actually computed.
 - `SHIFT_TIME`: This is to shift all times so that the stim onset is at time 0.
 - `BODYPARTS`: Bodyparts of the DLC files that are actually used in the analysis. Anything that is not in there will be discarded, so it needs to contain all bodyparts used to compute features.
 - `FEATURES_NORM`: tuple of 'features'. Elements in here will be normalized by subtracting their pre-stimulation mean.
-- `NSTD`: To estimate the delay between the stimulation onset and the actual change in behaviour. This parameter controls how is defined the "change in behaviour". It is defined as when the value becomes higher than NSTD times the standard deviation of the signal before the stimulation onset.
+- `NSTD`: To estimate the delay between the stimulation onset and the actual change in behaviour. This parameter controls how is defined the "change in behaviour". It is defined as when the value becomes higher than `NSTD` times the standard deviation of the signal before the stimulation onset.
 - `NPOINTS`: Number of points above the aforementioned threshold used to make a linear fit. The delay will be the crossing of this fit with the y=threshold line.
 - `MAXDELAY`: Maximum allowed delay, above which it will not be considered as a response.
 
 ###### Data cleaning
-This is where we handle tracking errors. DLC files come with a 'likelihood' for each bodypart in each frame, ranging from 0 to 1. The latter means the model is 100% sure the bodypart was correctly assigned, the former means the opposite. If we keep low-likelihood values, we'll end up with artifacts in the computed features, so we need to get rid of them. If there are not too much, missing data can be interpolated to reconstruct a legit time serie, in some extent. Otherwise, the trial need to be discarded.
+This is where we handle tracking errors. DLC files come with a likelihood for each bodypart in each frame, ranging from 0 to 1. The latter means the model is 100% sure the bodypart was correctly assigned, the former means the opposite. If we keep low-likelihood values, we'll end up with artifacts in the computed features, so we need to get rid of them. If there are not too much, missing data can be interpolated to reconstruct a legit time serie, in some extent. Otherwise, the trial need to be discarded.
 - `LH_THRESH`: Likelihood below this will be considered as missing data.
 - `LH_PERCENT`: If a trace has more than this fraction of missing data, the whole trial is dropped and not used in the analysis.
 - `LH_CONSECUTIVE`: If a trace has more than this amount of consecutive frames with missing data, the whole trial is dropped and not used in the analysis.
@@ -162,7 +159,7 @@ Those are graphs options, such as human-readable labels and so on.
 - `FEATURES_OFF` : list of features that will not be plotted.
 
 ##### The Config class
-This is the object that will be instantiated in the main script. It reads the global variables defined above to make them available in the script, but especially defines the actual features and metrics computation. Some of its methods (function attached to the object) must exist. Below is the description of each components of that class.
+This is the object that will be instantiated in the main script. It reads the global variables defined above to make them available in the script, but especially defines the actual features and metrics computation. Some of its methods (functions attached to the Config object) must exist. Below is the description of each components of that class.
 The required methods are :
 - \_\_init()\_\_
 - read_setting()
@@ -216,7 +213,7 @@ Finally, you can have any number of sections corresponding to animals ID, contai
 #### The plot configuration file
 This is a TOML file specifying various display options. Generated graphs use it to set their line colors, axes color and thickness, style, etc. Everything could be modified in post-production in a vector graphics editor software such as [Inkscape](https://inkscape.org/), but this file can allow you to spend a whole lot less time editing your graphs.
 
-As a TOML file, it has sections declared by brackets (`[section name]`), followed by entries declared with an equal (`something = anything`). Most python types are supported, eg. strings (`"strings"`), scalars (`5.25`, `8`), booleans (`true`, `false`) and lists (`[0.7961, 0.9451, 0.9961]`). The file is extensively documented, which means each lines is explained with comments (`# comment`).
+As a TOML file, it has sections declared by brackets (`[section name]`), followed by entries declared with an equal (`something = anything`). Most Python types are supported, eg. strings (`"strings"`), scalars (`5.25`, `8`), booleans (`true`, `false`) and lists (`[0.7961, 0.9451, 0.9961]`). The file is extensively documented, which means each lines is explained with comments (`# a comment`).
 
 Basically, this controls line colors, transparency, width for each type of trace (per-trial, per-animal, per-condition and pooled). It further specifies the properties of the stimulation representation (color, transparency and name in the legend). It also controls the bar plots properties (bars face and edges colors, and error bar cap size). Finally, it sets the axes properties (the x and y axes thickness, number of ticks, font family and size, whether to display the grid and arrows at the tip of axes and figure size).
 
@@ -229,10 +226,10 @@ Each generated figures are saved as svg (editable vector graphics). They are sav
 
 Along with the figures, you'll find two log files : `dropped.txt` and `used.txt`. The former contains the files that were dropped because there were too much missing data (based on the likelihood criteria set in the configuration file, see the [Data cleaning section](#data-cleaning)). Conversely, the `used.txt` contains the files that were used in the analysis. This excludes the files from `dropped.txt` along with the ones that were not assigned to a condition. In that case, a warning message is issued in the console.
 
-A summary CSV is saved. It contains each features' time series for each trials, giving the trial number, the trial ID, the condition, the filename and the animal.
+A summary CSV file is saved, called `features.csv`. It contains each features' time series for each trials, giving the trial number, the trial ID, the condition, the filename and the animal. Metrics (`metrics.csv`), delays and responses (`response_{feature_name}`) are saved as well. Statistics summary are saved for each metrics, delays and response are saved as well.
 
 Last, a parameters file tracks the parameters used for this analysis.
 
 ## Tips
 - if there is an error, read the error message. Often, it might indicate what went wrong (for instance, could not locate a file, no data, etc.).
-- google (or any search engine) is your best friend when it comes to programs and code. Copy/pasting error messages might give you answers.
+- any search engine or LLMs are your best friend when it comes to programs and code. Copy/pasting error messages might give you insights.

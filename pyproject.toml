@@ -41,6 +41,4 @@ line-length = 88
 extend-include = ["*.ipynb"]
 
 [tool.hatch.build]
-include = [
-    "features_from_dlc"
-]
+include = ["features_from_dlc"]

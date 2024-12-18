@@ -88,7 +88,7 @@ df, metrics, response = ffd.process_directory(
 #     features, conditions, cfg
 # )
 
-# # plot (figures won't be saved automatically)
+# # plot (figures won't be saved)
 # ffd.plot_all_figures(
 #     features,
 #     pvalues_stim,
