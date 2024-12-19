@@ -1,4 +1,8 @@
 # features_from_dlc
+
+[![Python Version](https://img.shields.io/pypi/pyversions/features-from-dlc.svg)](https://pypi.org/project/features-from-dlc)
+[![PyPI](https://img.shields.io/pypi/v/features-from-dlc.svg)](https://pypi.org/project/features-from-dlc/)
+
 This repository contains a package called `features_from_dlc` that is used to compute and plot behavioral metrics from DeepLabCut tracking files.
 
 You'll also find some utility scripts in the scripts folder, as well as separate notebooks (.ipynb files) in the notebooks directory.
@@ -6,6 +10,7 @@ You'll also find some utility scripts in the scripts folder, as well as separate
 Jump to :
 - [Install instruction](#quick-start)
 - [The `features_from_dlc` package](#the-features_from_dlc-package)
+- [Usage](#usage)
 
 ##  Installation
 To use the scripts and notebooks, you first need to install some things. If conda is already installed, ignore steps 1-2.
@@ -14,11 +19,6 @@ For more detailed instructions on how to install `conda`, see [this page](https:
 
 1. Install [Miniforge](https://conda-forge.org/download/) (choose the latest version for your system) as user, add conda to PATH and make it the default interpreter.
 1. Open a terminal (PowerShell in Windows) and run `conda init`. Restart the terminal.
-1. Download the Source code zip (from Releases on the right), unzip and put it in a relevant location (eg. `~/programs` or whatever).
-1. Browse to this location from the terminal :
-    ```bash
-    cd /path/to/the/smart/location/features-from-dlc
-    ```
 1. Create a virtual environment named "ffd" :
     ```bash
     conda create -n ffd python=3.12
@@ -29,10 +29,12 @@ For more detailed instructions on how to install `conda`, see [this page](https:
     ```
 1. Install the package and its dependencies :
     ```bash
-    pip install .
+    pip install features-from-dlc
     ```
 
 You should be ready to use the scripts and notebooks ! To update, download the new release and perform steps 6 and 7.
+
+To use the scripts, see the [Usage](#usage) section.
 
 To use the notebooks, two options :
 - Use an IDE with Jupyter notebooks support such as [Visual Studio Code](https://code.visualstudio.com/download). Install the Python and Jupyter extensions (the squared pieces on the left panel). Open the notebook with vscode, on the top right you should be able to select a kernel : choose "ffd".
@@ -43,7 +45,7 @@ To use the notebooks, two options :
 ### Introduction
 This package is meant to be used to compute and display features from DeepLabCut (DLC) tracking files.
 
-It will process a bunch of h5 or csv files created by DLC, computing so called "features" that are arbitrarily defined by the user and displaying them in nice graphs : time series with averages and errors, corresponding bar plots that quantifies a change during a specified epoch (typically, an optogenetic stimulation).  
+It will process a bunch of h5 or csv files created by DLC, computing so called "features" that are arbitrarily defined by the user and displaying them in nice graphs : time series with averages and errors, corresponding bar plots that quantifies a change during a specified epoch (typically, an optogenetic stimulation), response delays and response rate. 
 It is intended to be modular : the main module (`features_from_dlc.py`) merely loads DLC files, computes features, averages them per condition and plots them. So-called configuration files are plugged into it and specifies _how_ the features are computed from the bodyparts tracked in DLC.  
 Anyone can write its own configuration file to compute any required features (such as speed, body angle, jaw opening, you name it), as long as the original syntax is respected.
 
@@ -70,7 +72,7 @@ Note that after installation, the `features_from_dlc` package is installed insid
 It's easier to use as conda is nicely integrated and it is made easy to switch between environments.
 1. Install [vscode](https://code.visualstudio.com/download) (it does not require admin rights).
 1. Install Python extension (squared pieces in the left panel).
-1. Open the `scripts/ffd_quantify.py` script. In the bottom right corner, you should see a "conda" entry : click on it and select the ffd conda environment. To run the script, click on the Play item on the top right.
+1. Open the `scripts/ffd_quantify.py` script. In the bottom right corner, you should see a "conda" entry : click on it and select the ffd conda environment. To run the script, click on the Play icon on the top right.
 
 #### Requirements
 You need to have tracked your video clips with DeepLabCut and saved the output files (either .h5 or .csv files). One file corresponds to one and only one trial, so you might need to split your original videos into several short clips around the stimulation onsets and offsets beforehand. This can be done with [`videocutter` program](https://github.com/TeamNCMC/videocutter). All files analyzed together must :
