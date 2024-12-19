@@ -10,8 +10,6 @@ Works with features_from_dlc v2024.12.18
 
 import os
 
-import pandas as pd
-
 import features_from_dlc as ffd
 
 # --- Parameters ---
@@ -22,7 +20,7 @@ modality = "openfield"  # name of the configuration file (without .py)
 
 # - Animals
 # Only files beginning by those will be processed. If only one, write as ("xxx",)
-animals = ("animal0", "animal1")
+animals = ("animal0", "animal1", "animal2")
 
 # - Groups
 # This must be a dictionnary {key: values}.
@@ -33,8 +31,8 @@ animals = ("animal0", "animal1")
 # it's assigned to the corresponding condition, whether there's something else eleswhere
 # in the file name. See get_condition() function for examples.
 conditions = {
-    "condition1": ["mouse0"],
-    "condition2": ["identifier"],
+    "condition1": ["animal0"],
+    "condition2": ["something"],
     "condition3": ["something_else"],
 }
 # Choose whether the conditions are paired, eg. if the same subject appears in several
@@ -80,6 +78,7 @@ df, metrics, response = ffd.process_directory(
 )
 
 # # Alternatively, use already generated features.csv file
+# import pandas as pd
 # cfg = ffd.get_config(modality, configs_path, None)  # get config
 # features = pd.read_csv(os.path.join(outdir, "features.csv"))  # load features
 

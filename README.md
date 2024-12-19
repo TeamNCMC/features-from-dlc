@@ -5,12 +5,13 @@
 
 This repository contains a package called `features_from_dlc` that is used to compute and plot behavioral metrics from DeepLabCut tracking files.
 
-You'll also find some utility scripts in the scripts folder, as well as separate notebooks (.ipynb files) in the notebooks directory.
+You'll also find some utility scripts in the `scripts` folder, notebooks (.ipynb files) in the `notebooks` directory and an example on how to use the package in the `examples` folder.
 
 Jump to :
 - [Install instruction](#quick-start)
 - [The `features_from_dlc` package](#the-features_from_dlc-package)
 - [Usage](#usage)
+- [The configuration file](#the-configuration-file)
 
 ##  Installation
 To use the scripts and notebooks, you first need to install some things. If conda is already installed, ignore steps 1-2.
@@ -66,13 +67,13 @@ The attempt to make this modular is the idea that the principle is always the sa
 #### Getting started
 Follow the instructions in the [Quick start](#quick-start) section. Then, the idea is to edit the example script and configuration files before running it your data. In principle you can do that with any text editor, but it is recommended to use an IDE for ease of use. You can use any of your liking, below is explained how to use Visual Studio Code.
 
-Note that after installation, the `features_from_dlc` package is installed inside the conda environment. The `features_from_dlc` folder is not used anymore, rather, we will use a script to import the package and use it on the data. The `ffd_quantify.py` script located in `scripts/` is a template you can copy and modify as needed.
+Note that after installation, the `features_from_dlc` package is installed inside the conda environment. The `features_from_dlc` folder is not used anymore, rather, we will use a script to import the package and use it on the data. The `ffd_quantify.py` script located in `examples/` is a template you can copy and modify as needed.
 
 ##### Visual Studio Code
 It's easier to use as conda is nicely integrated and it is made easy to switch between environments.
 1. Install [vscode](https://code.visualstudio.com/download) (it does not require admin rights).
 1. Install Python extension (squared pieces in the left panel).
-1. Open the `scripts/ffd_quantify.py` script. In the bottom right corner, you should see a "conda" entry : click on it and select the ffd conda environment. To run the script, click on the Play icon on the top right.
+1. Open the `examples/ffd_quantify.py` script. In the bottom right corner, you should see a "conda" entry : click on it and select the ffd conda environment. To run the script, click on the Play icon on the top right.
 
 #### Requirements
 You need to have tracked your video clips with DeepLabCut and saved the output files (either .h5 or .csv files). One file corresponds to one and only one trial, so you might need to split your original videos into several short clips around the stimulation onsets and offsets beforehand. This can be done with [`videocutter` program](https://github.com/TeamNCMC/videocutter). All files analyzed together must :
@@ -87,7 +88,7 @@ You also need a configuration file. It defines the features one wants to extract
 Optionnaly, you can have a settings.toml file next to the DLC files to analyze. It specifies the experimental settings (timings and pixel size). If the file does not exist, default values from the configuration file will be used instead. See [The settings.toml file](#the-settingstoml-file).
 
 #### Usage
-1. Copy-paste the `scripts/ffd_quantify.py` file elsewhere on your computer, open it with an editor.
+1. Copy-paste the `examples/ffd_quantify.py` file elsewhere on your computer, open it with an editor.
 1. Fill the `--- Parameters ---` section. This includes :
    - `directory` : the full path to the directory containing the *files to be analyzed*.
    - `configs_path` : the full path to the directory containing the *configuration files* (eg. `modality.py` and `config_plot.toml`).

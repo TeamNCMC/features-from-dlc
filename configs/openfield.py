@@ -4,14 +4,13 @@ restrictions to its content, notably the Config class -- see corresponding docst
 Give it a sensible name, describing to which modality it corresponds (openfield, ...).
 
 All global variables (in CAPSLOCK before the Class definition) should exist.
-Remember to edit the `features_metrics_range` variable in the `get_features()` function
-to adjust when the in-stim quantifying metric should be computed.
 
 This particular version :
 modality : openfield
-features : speed, head angle, body angle, x, y
-author : Guillaume Le Goc (g.legoc@posteo.org), Rémi Proville (Acquineuro)
-version : 2024.11.27
+features : speed, heading angle, bending angle, x, y
+bodyparts : Left ear, Right ear, Nose, Tail base
+authors : Guillaume Le Goc (g.legoc@posteo.org), Rémi Proville (Acquineuro)
+version : 2024.12.19
 
 """
 
@@ -41,13 +40,34 @@ BODYPARTS = ["Left ear", "Right ear", "Tail", "Nose"]
 # Features to normalize by subtracting their pre-stim mean. This must be a tuple, so if
 # there is only one, write it like FEATURES_NORM = ("something",)
 FEATURES_NORM = ("theta_body", "theta_neck")
+# Select the time range in which the metric is computed, in the same units as
+# `stim_time`, BEFORE time-shifting is performed. This should be a dict mapping a
+# feature to another dict, itself mapping a metric to a 2-elements list. The metrics
+# names should be defined in `Config.get_features()`.
+FEATURES_METRICS_RANGE = {
+    "speed": {"mean": [0.5, 1], "deceleration": [0.5, 0.60]},
+    "theta_body": {"mean": [0.75, 1]},
+    "theta_neck": {"mean": [0.75, 1]},
+    "xbody": {},
+    "ybody": {},
+}
+# Choose metrics that will have their y axis shared with the time series, eg.
+# when the metric is in the same units as the feature plotted. Same structure as
+# FEATURES_METRICS_RANGE, with True/False
+FEATURES_METRICS_SHARE = {
+    "speed": {"mean": True, "deceleration": False},
+    "theta_body": {"max": True},
+    "theta_neck": {"max": True},
+    "xbody": {},
+    "ybody": {},
+}
 # Multiplier of standard deviation to define the initiation of reaction to determine the
 # delay from stimulation onset
 NSTD = 3
 # Number of points to fit after signal is above NSTD times the pre-stim std
 NPOINTS = 3
 # Maximum allowed delay, above which it is not considered as a response
-MAXDELAY = 0.5  # in seconds
+MAXDELAY = 0.5  # in same units as CLIP_DURATION
 
 # --- Data cleaning parameters
 # Likelihood threshold, below which values will be interpolated.
@@ -74,9 +94,14 @@ FEATURES_LABELS = {
     "ybody": "centroid y (mm)",
 }
 # Preset y axes limits
-FEATURES_YLIM = {}  # must be [ymin, ymax], empty {} for automatic
-# Features to NOT plot (must be a list [])
-FEATURES_OFF = ["xbody", "ybody"]
+FEATURES_YLIM = {
+    "speed": [0, 45],
+    "theta_body": [-60, 220],
+    "theta_neck": [-40, 120],
+    # must be [ymin, ymax]
+}  # must be [ymin, ymax], empty {} for automatic
+# Features to NOT plot
+FEATURES_OFF = ("xbody", "ybody")
 
 
 # --- Configuration class
@@ -177,6 +202,8 @@ class Config:
         """
         Read key from settings, with a fallback if not there.
 
+        Required.
+
         Parameters
         ----------
         setting : str
@@ -203,6 +230,8 @@ class Config:
 
         Create the common time vector and shift all time variable so that stimulation
         onset is time 0. get_features() should be run before.
+
+        Required.
 
         """
         # common time vector for all time series
@@ -241,6 +270,8 @@ class Config:
         2. "pixel_size" key in the "default" section of the settings.toml file.
         3. PIXEL_SIZE global variable at the top of this file.
         This value is stored in `pixel_size` attribute.
+
+        Required.
 
         Parameters
         ----------
@@ -284,6 +315,8 @@ class Config:
         eg. the computed metric is in the same units as the feature itself.
         - features_labels : maps a feature to its displayed name on the y-axis of graph.
 
+        Required.
+
         """
         # How to compute features. It must be mapping between a feature name and a
         # lambda function that takes a DataFrame as a sole argument and returns a Serie
@@ -317,32 +350,20 @@ class Config:
                 "mean": lambda val, _: np.mean(val),
                 "deceleration": lambda s, t: -self.get_accel_coef(s, t),
             },
-            "theta_body": {"max": lambda val, _: np.max(val)},
-            "theta_neck": {"max": lambda val, _: np.max(val)},
+            "theta_body": {"mean": lambda val, _: np.mean(val)},
+            "theta_neck": {"mean": lambda val, _: np.mean(val)},
             "xbody": {},
             "ybody": {},
         }
 
         # Select the time range in which the metric is computed, in the same units as
         # `stim_time`, before time-shifting is performed.
-        features_metrics_range = {
-            "speed": {"mean": [0.5, 1], "deceleration": [0.5, 0.75]},
-            "theta_body": {"max": [0.5, 1]},
-            "theta_neck": {"max": [0.5, 1]},
-            "xbody": {},
-            "ybody": {},
-        }
+        features_metrics_range = FEATURES_METRICS_RANGE
 
         # Choose metrics that will have their y axis shared with the time series, eg.
         # when the metric is in the same units as the feature plotted. This is a similar
         # dict, with True and False.
-        features_metrics_share = {
-            "speed": {"mean": True, "deceleration": False},
-            "theta_body": {"max": True},
-            "theta_neck": {"max": True},
-            "xbody": {},
-            "ybody": {},
-        }
+        features_metrics_share = FEATURES_METRICS_SHARE
 
         # Labels for each features, appears on the y axis of time series
         features_labels = FEATURES_LABELS
@@ -360,6 +381,8 @@ class Config:
     ):
         """
         Saves (hardcoded) parameters used to analyze data and generate figures.
+
+        Required.
 
         Parameters
         ----------
@@ -393,6 +416,8 @@ class Config:
         that are not based on the likelihood. This exists because sometimes DLC is
         highly confident on a point that is badly placed, and there might be another way
         to find "bad" values.
+
+        Required.
 
         Parameters
         ----------
