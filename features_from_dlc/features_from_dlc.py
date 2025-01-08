@@ -2111,8 +2111,8 @@ def process_directory(
             pbar.set_description(f"Saving figure {feature}")
             fig.savefig(os.path.join(outdir, f"fig_{feature.replace('_', '')}.svg"))
         fig_delay.savefig(os.path.join(outdir, "fig_delays.svg"))
-        fig_rspness.savefig(os.path.join(outdir, "fig_response.svg"))
-        fig_response.savefig(os.path.join(outdir, "fig_responsiveness.svg"))
+        fig_rspness.savefig(os.path.join(outdir, "fig_responsiveness.svg"))
+        fig_response.savefig(os.path.join(outdir, "fig_response.svg"))
         fig_raster.savefig(os.path.join(outdir, "fig_raster.svg"))
 
         # save tables
