@@ -321,7 +321,7 @@ def clean_df(
 
     # apply custom marking-as-missing function
     if custom_filter_fun is not None:
-        df_in = custom_filter_fun(df)
+        df_in = custom_filter_fun(df_in)
 
     # get columns with a "likelihood" sub-column
     cols = df_in.columns[df_in.columns.get_level_values(1).isin(["likelihood"])]
