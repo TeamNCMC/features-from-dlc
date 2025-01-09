@@ -41,6 +41,12 @@ To use the notebooks, two options :
 - Use an IDE with Jupyter notebooks support such as [Visual Studio Code](https://code.visualstudio.com/download). Install the Python and Jupyter extensions (the squared pieces on the left panel). Open the notebook with vscode, on the top right you should be able to select a kernel : choose "ffd".
 - Use Jupyter directly in its web browser interface : from the terminal, activate the conda environment : `conda activate ffd`, then launch Jupyter : `jupyter lab /path/to/the/notebooks/notebook.ipynb`
 
+## Update
+To update, simply activate your environment (`conda activate ffd`) and run :
+```bash
+pip install features-from-dlc --upgrade
+```
+
 ## In-depth description of `features_from_dlc`
 
 ### Introduction
