@@ -33,7 +33,7 @@ For more detailed instructions on how to install `conda`, see [this page](https:
     pip install features-from-dlc
     ```
 
-You should be ready to use the scripts and notebooks ! To update, download the new release and perform steps 6 and 7.
+You should be ready to use the scripts and notebooks !
 
 To use the scripts, see the [Usage](#usage) section.
 
@@ -53,7 +53,7 @@ pip install features-from-dlc --upgrade
 This package is meant to be used to compute and display features from DeepLabCut (DLC) tracking files.
 
 It will process a bunch of h5 or csv files created by DLC, computing so called "features" that are arbitrarily defined by the user and displaying them in nice graphs : time series with averages and errors, corresponding bar plots that quantifies a change during a specified epoch (typically, an optogenetic stimulation), response delays and response rate. 
-It is intended to be modular : the main module (`features_from_dlc.py`) merely loads DLC files, computes features, averages them per condition and plots them. So-called configuration files are plugged into it and specifies _how_ the features are computed from the bodyparts tracked in DLC.  
+It is intended to be modular : the main module (`features_from_dlc`) merely loads DLC files, computes features, averages them per condition and plots them. So-called configuration files are plugged into it and specifies _how_ the features are computed from the bodyparts tracked in DLC.  
 Anyone can write its own configuration file to compute any required features (such as speed, body angle, jaw opening, you name it), as long as the original syntax is respected.
 
 #### Tip
