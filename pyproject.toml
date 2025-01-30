@@ -1,6 +1,6 @@
 [project]
 name = "features-from-dlc"
-version = "2025.1.9"
+version = "2025.1.30"
 authors = [{ name = "Guillaume Le Goc", email = "g.legoc@posteo.org" }]
 description = "Behavioral quantification from DeepLabCut tracking"
 readme = "README.md"
@@ -22,6 +22,7 @@ dependencies = [
   "numpy>=2.1",
   "pandas>=2.2.3",
   "pingouin>=0.5.5",
+  "rich",
   "scipy",
   "seaborn>=0.13.2",
   "shapely>=2.0.4",
