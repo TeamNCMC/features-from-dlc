@@ -64,7 +64,7 @@ import importlib
 import os
 import tomllib
 from functools import partial
-
+import warnings
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -724,7 +724,7 @@ def select_consecutive_pvalues(
 
 
 def get_quantif_metrics(
-    df: pd.DataFrame, metrics_map: dict, range_map: dict, paired=False
+    df: pd.DataFrame, metrics_map: dict, range_map: dict, stim_time: tuple, max_range: int, paired=False
 ):
     """
     Compute quantitative metrics during stimulation to compare groups (conditions).
@@ -743,6 +743,10 @@ def get_quantif_metrics(
         Mapping a feature to a function to apply to get the metric.
     range_map : dict
         Mapping a feature to time range in which the metric is computed.
+    stim_time : 2-elements list or tuple or None
+        Stimulation onset and offsets to draw the stimulation patch.
+    max_range: int
+        Number to return maximum value between (start_stim, start_stim + STIM_DURATION * MAXIMUM_RANGE)
     paired : bool, optional
         Whether to perform paired tests.
 
@@ -754,10 +758,17 @@ def get_quantif_metrics(
     pvalues : dict
         Map a metric name to a DataFrame with test result summary as returned by
         `pingouin.pairwise_tests()`.
+    df_metrics_mean : pandas.DataFrame
+        DataFrame with the maximum (or minimum for speed) of the trial-averaged feature
+        time series, and its associated delay.
+    pvalues_mean : dict
+        Map a metric name to a DataFrame with test result summary as returned by
+        `pingouin.pairwise_tests()`.
 
     """
     metrics_df_list = []  # prepare DataFrame with metrics
     metric_names_list = []  # prepare list of metrics names
+    animal_mean_max_list = []  # store animal max of mean for each feature
     pbar = tqdm(metrics_map.items())
     for feature, operations in pbar:
         pbar.set_description(f"Computing {feature} metrics")
@@ -768,7 +779,6 @@ def get_quantif_metrics(
                 (df["time"] >= range_map[feature][metric][0])
                 & (df["time"] < range_map[feature][metric][1])
             ]
-
             # get time vector
             time = df_stim["time"].unique()
 
@@ -794,18 +804,64 @@ def get_quantif_metrics(
                 df_metric.reset_index().set_index(["trialID", "condition"])
             )
 
+        #metrics min/max and delay 
+        # get stimulation duration
+        duration_stim = stim_time[1] - stim_time[0]
+
+        # select stimulation + n*length(stimulation)
+        df_selected_range = df[
+            (df["time"] >= stim_time[0])
+            & (df["time"] < stim_time[0] + duration_stim*max_range)
+        ]
+
+        # group by time, condition and animal and compute mean(feature)
+        df_animal_mean_time = (
+            df_selected_range.groupby(["time", "animal", "condition"])[feature]
+            .mean()
+            .reset_index()
+        )
+
+        # compute min(mean(feature)) if feature is speed, else max(mean(feature))
+        is_speed = feature == 'speed'
+        agg_func = 'idxmin' if is_speed else 'idxmax'
+        suffix = 'min' if is_speed else 'max'
+
+        s_animal_mean_max = (
+            df_animal_mean_time.groupby(["animal", "condition"])
+            .apply(lambda g: pd.Series({
+                f"{feature}_{suffix}": g[feature].loc[getattr(g[feature].abs(), agg_func)()],
+                f"{feature}_delay": g.loc[getattr(g[feature].abs(), agg_func)(), "time"]
+            }))
+            .reset_index()
+        )
+        animal_mean_max_list.append(s_animal_mean_max)
+
     # concatenate DataFrames along rows (merge)
     df_metrics = pd.concat(metrics_df_list, axis=1).reset_index()
     # remove duplicated "animal" columns
     df_metrics = df_metrics.loc[:, ~df_metrics.columns.duplicated()].copy()
 
-    # perform stat. tests
+    # perform stat.tests
     if df_metrics["condition"].nunique() < 2:
         pvalues = {metric_name: pd.DataFrame() for metric_name in metric_names_list}
     else:
         pvalues = perform_stat_test(df_metrics, metric_names_list, paired=paired)
 
-    return df_metrics, pvalues
+    #-----------------------------------max and delay-----------------------------------
+    df_temp = df_metrics.copy()
+    df_metrics_mean = df_temp.groupby(['animal', 'condition']).mean(numeric_only=True).reset_index()
+
+    # merge all animal_mean_max into df_metrics_mean
+    for df_animal_mean_max in animal_mean_max_list:
+        df_metrics_mean = df_metrics_mean.merge(df_animal_mean_max, on=["animal", "condition"], how="left")
+
+    # perform stat.tests
+    if df_metrics_mean["condition"].nunique() < 2:
+        pvalues_mean = {metric_name: pd.DataFrame() for metric_name in metric_names_list}
+    else:
+        pvalues_mean = perform_stat_test(df_metrics_mean, metric_names_list, paired=paired)
+
+    return df_metrics, pvalues, df_metrics_mean, pvalues_mean
 
 
 def get_delays(
@@ -816,6 +872,7 @@ def get_delays(
     npoints: int = 3,
     maxdelay: float = 0.5,
     paired: bool = False,
+    th_with_linear_fit: bool = False,
 ):
     """
     Find delay of response with respect to stimulation onset. Also gets response.
@@ -924,27 +981,31 @@ def get_delays(
                         :npoints
                     ]
 
-                    # fit
-                    p = np.polynomial.Polynomial.fit(
-                        first_times_above, first_values_above, 1
-                    )
-                    # get slope
-                    coef = p.convert().coef[1]
-                    # determine if we consider lower or upper threshold
-                    if first_values_above[0] >= upper_threshold:
-                        # slope should be positive
-                        if coef <= 0:
-                            onset = np.nan
-                        else:
-                            # get intersection between fit and threshold
-                            onset = (p - upper_threshold).roots()[0]
-                    elif first_values_above[0] <= lower_threshold:
-                        # slope should be negative
-                        if coef >= 0:
-                            onset = np.nan
-                        else:
-                            # get intersection between fit and threshold
-                            onset = (p - lower_threshold).roots()[0]
+                    # If th_with_3_std is True, refine the onset estimate using a linear fit
+                    if th_with_linear_fit:
+                        # fit
+                        p = np.polynomial.Polynomial.fit(
+                            first_times_above, first_values_above, 1
+                        )
+                        # get slope
+                        coef = p.convert().coef[1]
+                        # determine if we consider lower or upper threshold
+                        if first_values_above[0] >= upper_threshold:
+                            # slope should be positive
+                            if coef <= 0:
+                                onset = np.nan
+                            else:
+                                # get intersection between fit and threshold
+                                onset = (p - upper_threshold).roots()[0]
+                        elif first_values_above[0] <= lower_threshold:
+                            # slope should be negative
+                            if coef >= 0:
+                                onset = np.nan
+                            else:
+                                # get intersection between fit and threshold
+                                onset = (p - lower_threshold).roots()[0]
+                    else:
+                        onset = first_times_above[0]
 
             # check motion onset is after stim onset
             if onset <= stim_time[0]:
@@ -1219,7 +1280,6 @@ def on_pick(event, df: pd.DataFrame):
     ----------
     event : Event
 
-
     """
     # seaborn labels are "childXX" where XX is the index of the hue
     labelid = int(event.artist.get_label().split("_child")[1])
@@ -1230,6 +1290,7 @@ def on_pick(event, df: pd.DataFrame):
 
 def nice_plot_serie(
     df: pd.DataFrame,
+    df_features_plt: pd.DataFrame,
     x: str = "",
     y: str = "",
     xlabel: str = "",
@@ -1251,6 +1312,7 @@ def nice_plot_serie(
     Parameters
     ----------
     df : pandas.DataFrame
+    df_features_plt : pandas.DataFrame
     x, y : str
         Keys in `df`.
     xlabel, ylabel : str
@@ -1290,7 +1352,7 @@ def nice_plot_serie(
             **kwargs_plot["trial"],
         )
 
-    if plot_options["plot_animal"]:
+    if plot_options["plot_animal"] and not plot_options["plot_sem_per_animal"]:
         # plot mean per animal
         palette = kwargs_plot["animal"]["color"]
         ax = sns.lineplot(
@@ -1336,6 +1398,21 @@ def nice_plot_serie(
             **kwargs_plot["pooled"],
         )
 
+    if plot_options["plot_sem_per_animal"]:
+        # plot mean per animal
+        palette = kwargs_plot["animal"]["color"]
+        ax = sns.lineplot(
+            df_features_plt,
+            x=x,
+            y=y,
+            hue="animal",
+            estimator="mean",
+            errorbar="se",
+            palette=palette,
+            ax=ax,
+            err_kws=kwargs_plot["sem"],
+            **kwargs_plot["animal"],
+        )
     # adjust limit
     if ylim:
         ax.set_ylim(ylim)
@@ -1646,21 +1723,61 @@ def nice_plot_raster(
     )
     fig.subplots_adjust(right=0.9)
 
+    # loop over condition
     for idx_condition in range(nconditions):
         condition = conditions[idx_condition]
-        df_cond = df_in[df_in["condition"] == condition]
-        trials = df_cond[y].unique()
-        ntrials = len(trials)
+        df_cond = df_in[df_in["condition"] == condition].copy()
 
-        # get indices of change of animals
+        # get trials lengths
+        trial_lengths = df_cond.groupby(y).size()
+        if trial_lengths.empty:
+            warnings.warn(f"[{condition}] No trial found.")
+            continue
+
+        # get strandard trial size
+        ntimes = trial_lengths.mode()[0]
+
+        # only keep trials with this length
+        valid_trials = trial_lengths[trial_lengths == ntimes].index
+
+        # keep valids trials and sort them by frame(time)
+        df_cond = (
+            df_cond[df_cond[y].isin(valid_trials)]
+            .sort_values(by=[y, "time"])
+            .copy()
+        )
+
+        # get number of unique trials
+        ntrials = df_cond[y].nunique()
+
+        if ntrials == 0:
+            warnings.warn(f"[{condition}] No trial with {ntimes} frames.")
+            continue
+
+        # get animals grouped by y 
         ser = df_cond.groupby([y])["animal"].unique()
+
+        # get positions (in y) where the group of animals changed
         ind_animals = np.where(ser.ne(ser.shift().bfill()))[0]
 
         for idx_feature in range(nfeatures):
             feature = features[idx_feature]
+            all_vals = df_cond[feature].values
+            total_vals = all_vals.size
+            expected_size = ntrials * ntimes
+
+            # check trials length 
+            if total_vals != expected_size:
+                warnings.warn(
+                    f"[{condition} - {feature}] length problem : {total_vals}, expected {expected_size}"
+                )
+                continue
 
             # prepare raster data
-            data = np.reshape(df_cond[feature].values, (ntrials, ntimes))
+            # convert 1D -> 2D
+            data = np.reshape(all_vals, (ntrials, ntimes))
+            trials = np.arange(ntrials + 1)
+            time = np.linspace(0, 1, ntimes + 1)
 
             # raster plot
             p = axs[idx_feature, idx_condition].pcolormesh(
@@ -1669,6 +1786,7 @@ def nice_plot_raster(
                 data,
                 vmin=cranges[idx_feature][0],
                 vmax=cranges[idx_feature][1],
+                shading="auto",
                 **kwargs,
             )
 
@@ -1682,12 +1800,7 @@ def nice_plot_raster(
 
             # add colorbar if it's the last panel on the right
             if idx_condition == nconditions - 1:
-                axpos = (
-                    axs[idx_feature, idx_condition]
-                    .get_position()
-                    .get_points()
-                    .flatten()
-                )
+                axpos = axs[idx_feature, idx_condition].get_position().get_points().flatten()
                 axheight = axpos[3] - axpos[1]
                 cax = fig.add_axes((axpos[2] + 0.01, axpos[1], 1 / 75, axheight))
                 plt.colorbar(p, label=clabels[feature], cax=cax)
@@ -1700,7 +1813,7 @@ def nice_plot_raster(
             if idx_feature == 0:
                 axs[idx_feature, idx_condition].set_title(condition)
 
-            # adjust style
+            # style
             axs[idx_feature, idx_condition] = set_nticks(
                 axs[idx_feature, idx_condition],
                 kwargs_plot["nxticks"],
@@ -1714,7 +1827,7 @@ def nice_plot_raster(
     return fig
 
 
-def process_features(df_features: pd.DataFrame, cfg, paired: bool = False):
+def process_features(df_features: pd.DataFrame, cfg, paired: bool = False, th_with_linear_fit: bool = False):
     """
     Get data for `plot_all_figures()` from the features DataFrame.
 
@@ -1726,6 +1839,7 @@ def process_features(df_features: pd.DataFrame, cfg, paired: bool = False):
     df_features : pd.DataFrame
     cfg : Config
     paired : bool
+    th_with_linear_fit : bool
 
     Returns
     -------
@@ -1745,8 +1859,8 @@ def process_features(df_features: pd.DataFrame, cfg, paired: bool = False):
     }
 
     # get in-stim quantitative metric
-    df_metrics, pvalues_metrics = get_quantif_metrics(
-        df_features, cfg.features_metrics, cfg.features_metrics_range, paired=paired
+    df_metrics, pvalues_metrics, df_metrics_mean, pvalues_metrics_mean = get_quantif_metrics(
+        df_features, cfg.features_metrics, cfg.features_metrics_range, cfg.stim_time, cfg.maxrange, paired=paired
     )
 
     # delays before motion onset for each feature
@@ -1758,6 +1872,7 @@ def process_features(df_features: pd.DataFrame, cfg, paired: bool = False):
         npoints=cfg.npoints,
         maxdelay=cfg.maxdelay,
         paired=paired,
+        th_with_linear_fit=th_with_linear_fit,
     )
     df_response["delay"] = df_response["delay"] * 1000  # convert to ms
 
@@ -1765,9 +1880,11 @@ def process_features(df_features: pd.DataFrame, cfg, paired: bool = False):
         pvalues_stim,
         df_metrics,
         pvalues_metrics,
+        pvalues_metrics_mean,
         df_response,
         pvalues_delays,
         pvalues_response,
+        df_metrics_mean,
     )
 
 
@@ -1775,7 +1892,9 @@ def plot_all_figures(
     df_features: pd.DataFrame,
     pvalues_stim: dict | None,
     df_metrics: pd.DataFrame,
+    df_metrics_mean: pd.DataFrame,
     pvalues_metrics: dict,
+    pvalues_metrics_mean: dict,
     df_response: pd.DataFrame,
     pvalues_delays: dict,
     pvalues_response: dict,
@@ -1796,7 +1915,13 @@ def plot_all_figures(
     df_metrics : pd.DataFrame
         DataFrame with metrics quantifying in-stim change, as returned by
         `process_features()`.
+    df_metrics_mean : pd.DataFrame
+        DataFrame with metrics quantifying in-stim change, as returned by
+        `process_features()`.
     pvalues_metrics : dict
+        Maps a metric name to stat. tests performed with `pingouin`, as returned by
+        `process_features()`.
+    pvalues_metrics_mean : dict
         Maps a metric name to stat. tests performed with `pingouin`, as returned by
         `process_features()`.
     df_response : pd.DataFrame
@@ -1850,8 +1975,9 @@ def plot_all_figures(
         # prepare figure
         nmetrics = len(cfg.features_metrics[feature])
         nrows = 1
-        ncols = 3 + nmetrics  # 2 for time series, then 1 for each metric
+        ncols = 3 + nmetrics + 2  # 2 for time series, 1 for each metric , then 2 for max and delay metrics
         fig = plt.figure(figsize=kwargs_plot["figsize"])
+        fig.subplots_adjust(left=0.05, right=0.98, top=0.85, wspace=0.4)
         axs = []
         # create axis for time serie
         ax = fig.add_subplot(nrows, ncols, (1, 3))
@@ -1863,12 +1989,32 @@ def plot_all_figures(
             ax = fig.add_subplot(nrows, ncols, idx, sharey=axs[0] if sharey else None)
             axs.append(ax)
 
+        # plot average per animal
+        if plot_options["per_animal"]:
+            df_temp = df_features_plt.copy()
+            df_temp = df_temp[['time', feature, 'animal', 'condition']]
+            df_animal_mean = df_temp.groupby(['time', 'animal', 'condition']).mean().reset_index()
+
+            # get pre/during stim p-values
+            if df_animal_mean["condition"].nunique() <= 1:
+                pvalues_stim = {feature: None for feature in cfg.features.keys()}
+            else :
+                pvalues_stim = {
+                    feature: get_pvalue_timeserie(df_animal_mean, feature, cfg.stim_time)
+                    for feature in cfg.features.keys()
+                }
+            df_to_plot = df_animal_mean
+
+        else:
+            df_to_plot = df_features_plt
+
         # time series
         if feature in cfg.features_ylim:
             ylim = cfg.features_ylim[feature]
         else:
             ylim = None
         nice_plot_serie(
+            df_to_plot,
             df_features_plt,
             x="time",
             y=feature,
@@ -1892,13 +2038,23 @@ def plot_all_figures(
         for metric, ax in zip(cfg.features_metrics[feature], axs[1::]):
             # build metric name
             metric_name = f"{feature}_{metric}"
-            # get consecutive pvalues between conditions
-            pvals = select_consecutive_pvalues(
-                pvalues_metrics[metric_name], conditions_list
-            )
+
+            if plot_options["per_animal"]:
+                df_to_plot = df_metrics_mean
+                # get consecutive pvalues between conditions
+                pvals = select_consecutive_pvalues(
+                    pvalues_metrics_mean[metric_name], conditions_list
+                )
+            else:
+                # get consecutive pvalues between conditions
+                pvals = select_consecutive_pvalues(
+                    pvalues_metrics[metric_name], conditions_list
+                )
+                df_to_plot = df_metrics
+
             # plot bars
             nice_plot_metrics(
-                df_metrics,
+                df_to_plot,
                 x="condition",
                 y=metric_name,
                 order=conditions_list,
@@ -1908,7 +2064,37 @@ def plot_all_figures(
                 kwargs_plot=kwargs_plot,
             )
 
-        plt.show()
+        # plot max metrics
+        added_metrics = ['delay', 'min'] if feature == 'speed' else ['delay', 'max'] 
+        for i in range(len(added_metrics)):
+            metric = f'{feature}_{added_metrics[i]}'
+
+            df_metric = df_metrics_mean[["animal", "condition", metric]].copy()
+            df_metric["metric"] = df_metric[metric]  
+            df_metric = df_metric.rename(columns={metric: 'value'})
+
+            values = ['value']
+            if df_metrics["condition"].nunique() < 2:
+                pvalues_max = {"value": pd.DataFrame(columns=["A", "B", "p-unc", "metric", "overall-p"])}
+            else:
+                pvalues_max = perform_stat_test(df_metric, values)
+
+            pvals_max = select_consecutive_pvalues(pvalues_max[values[0]], conditions_list)
+
+            title_plot = f'{added_metrics[i]} {cfg.maxrange}*stim'
+
+            nice_plot_metrics(
+                df_metric,
+                x="condition",
+                y='value',
+                order=conditions_list,
+                pvalues=pvals_max,
+                title=title_plot,
+                ax=axs[-(i+1)],
+                kwargs_plot=kwargs_plot,
+                )
+            
+        plt.show(block=True)
         figs_features.append(fig)
 
     # - Raster plot (here all conditions are plotted)
@@ -1924,19 +2110,51 @@ def plot_all_figures(
         kwargs_plot=kwargs_plot,
         quantile=0.99,
     )
-    plt.show()
+    plt.show(block=True)
+
     print("\t Done.")
 
     # - Delays
     print("Plotting delays...", end="", flush=True)
     fig_delay, axd = plt.subplots(figsize=kwargs_plot["figsize"])
     df_response_plt = df_response[~df_response["feature"].isin(cfg.features_off)]
+    #plot mean trials for each animal
+    if plot_options["per_animal"]: 
+        #plot delay
+        df_temp_delay = df_response_plt[['condition', 'feature', 'animal', 'delay']]
+        df_to_plot_delay = df_temp_delay.groupby(['animal','condition','feature']).mean().reset_index()
+        
+        #plot response
+        df_temp_resp = df_response_plt[['condition', 'feature', 'animal', 'response']]
+        df_to_plot_response = df_temp_resp.groupby(['animal','condition','feature']).mean().reset_index()
+
+        #stat
+        if df_to_plot_delay["condition"].nunique() < 2 or df_to_plot_response["condition"].nunique() < 2:
+            pvalues_response[feature] = pd.DataFrame(columns=["A", "B", "p-unc", "metric", "overall-p"])
+            pvalues_delays[feature] = pd.DataFrame(columns=["A", "B", "p-unc", "metric", "overall-p"])
+        else:
+            pval = perform_stat_test(df_to_plot_response, ["response"])
+            pvalues_response[feature] = pval["response"]
+            pval = perform_stat_test(df_to_plot_delay, ["delay"])
+            pvalues_delays[feature] = pval["delay"]
+
+
+        #plot responsiveness
+        df_temp_respness = df_response_plt[['condition', 'feature', 'animal', 'responsiveness']]
+        df_to_plot_responsiveness = df_temp_respness.groupby(['animal','condition','feature']).mean().reset_index()
+
+    else:
+        df_to_plot_delay = df_response_plt
+        df_to_plot_response = df_response_plt
+        df_to_plot_responsiveness = df_response_plt
+
     pval_delays_plt = {
         feature: select_consecutive_pvalues(pvalues_delays[feature], conditions_list)
         for feature in pvalues_delays.keys()
     }
+
     nice_plot_bars(
-        df_response_plt,
+        df_to_plot_delay,
         x="feature",
         y="delay",
         hue="condition",
@@ -1958,7 +2176,7 @@ def plot_all_figures(
     }
 
     nice_plot_bars(
-        df_response_plt,
+        df_to_plot_response,
         x="feature",
         y="response",
         hue="condition",
@@ -1975,7 +2193,7 @@ def plot_all_figures(
     print("Plotting responsiveness...", end="", flush=True)
     fig_rspness, axrs = plt.subplots(figsize=kwargs_plot["figsize"])
     nice_plot_bars(
-        df_response_plt,
+        df_to_plot_responsiveness,
         x="feature",
         y="responsiveness",
         hue="condition",
@@ -1997,6 +2215,7 @@ def process_directory(
     animals: tuple | list,
     conditions: dict,
     plot_options: dict,
+    th_with_linear_fit: bool,
     outdir: str | None = None,
     paired: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -2020,6 +2239,7 @@ def process_directory(
         Conditions and how to get them from the file name.
     plot_options : dict
         Plot options.
+    th_with_linear_fit: bool
     outdir : str, optional
         If not None, saves figures there. Default is None.
     paired : bool, optional
@@ -2085,17 +2305,21 @@ def process_directory(
         pvalues_stim,
         df_metrics,
         pvalues_metrics,
+        pvalues_metrics_mean,
         df_response,
         pvalues_delays,
         pvalues_response,
-    ) = process_features(df_features, cfg, paired=paired)
+        df_metrics_mean,
+    ) = process_features(df_features, cfg, paired=paired, th_with_linear_fit = th_with_linear_fit)
 
     # --- Plot everything
     figs_features, fig_raster, fig_delay, fig_response, fig_rspness = plot_all_figures(
         df_features,
         pvalues_stim,
         df_metrics,
+        df_metrics_mean,
         pvalues_metrics,
+        pvalues_metrics_mean,
         df_response,
         pvalues_delays,
         pvalues_response,
@@ -2118,6 +2342,7 @@ def process_directory(
         # save tables
         df_features.to_csv(os.path.join(outdir, "features.csv"), index=False)
         df_metrics.to_csv(os.path.join(outdir, "metrics.csv"), index=False)
+        df_metrics_mean.to_csv(os.path.join(outdir, "metrics_mean.csv"), index=False)
         df_response.to_csv(os.path.join(outdir, "response.csv"), index=False)
         for metric, pval in pvalues_metrics.items():
             pval.to_csv(os.path.join(outdir, f"stats_{metric}.csv"), index=False)
@@ -2136,7 +2361,6 @@ def process_directory(
         print(
             (
                 "[Warning] No output directory specified : "
-                "parameters and dropped trials were not written!"
             )
         )
 
