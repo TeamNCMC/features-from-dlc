@@ -1,0 +1,9 @@
+['animal0'.'CAMID_NAME']
+# eye calibration, Rp = b - a * diameter
+a =
+b =
+
+['animal1'.'CAMID_NAME']
+# eye calibration, Rp = b - a * diameter
+a =
+b =
